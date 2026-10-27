@@ -1,0 +1,47 @@
+# Blueprint: API + Postgres on Render
+# Dashboard → New → Blueprint → connect this repo
+services:
+  - type: web
+    name: bayn-ops-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    healthCheckPath: /up
+    envVars:
+      - key: APP_NAME
+        value: Ops Daily Check
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: "false"
+      - key: APP_TIMEZONE
+        value: Africa/Addis_Ababa
+      - key: LOG_CHANNEL
+        value: stderr
+      - key: DB_CONNECTION
+        value: pgsql
+      - key: SESSION_DRIVER
+        value: database
+      - key: CACHE_STORE
+        value: database
+      - key: QUEUE_CONNECTION
+        value: database
+      - key: FRONTEND_URL
+        value: https://bayn-ops-daily.vercel.app
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://bayn-ops-daily.vercel.app,http://localhost:5173,http://127.0.0.1:5173
+      - key: APP_KEY
+        generateValue: true
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: bayn-ops-db
+          property: connectionString
+
+databases:
+  - name: bayn-ops-db
+    plan: free
+    databaseName: ops_daily_check
+    user: ops

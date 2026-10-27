@@ -28,6 +28,10 @@ class TelegramPollCommand extends Command
         while (true) {
             try {
                 $updates = $client->getUpdates($offset);
+                if ($updates === []) {
+                    // empty poll or API failure — brief pause so we don't spin
+                    usleep(200000);
+                }
                 foreach ($updates as $update) {
                     $offset = ((int) ($update['update_id'] ?? 0)) + 1;
                     Cache::put('tg_update_offset', $offset, now()->addDays(7));

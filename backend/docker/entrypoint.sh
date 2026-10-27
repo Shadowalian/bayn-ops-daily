@@ -16,8 +16,9 @@ php artisan config:clear || true
 php artisan migrate --force
 php artisan db:seed --force
 
-(while true; do php artisan telegram:poll || true; sleep 3; done) &
-(while true; do php artisan schedule:work || true; sleep 3; done) &
+# Single bot poller (avoid Telegram 409 conflicts from overlapping processes)
+php artisan telegram:poll > /proc/1/fd/1 2>/proc/1/fd/2 &
+php artisan schedule:work > /proc/1/fd/1 2>/proc/1/fd/2 &
 
 PORT="${PORT:-8080}"
 exec php artisan serve --host=0.0.0.0 --port="$PORT"

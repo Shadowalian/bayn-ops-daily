@@ -37,6 +37,11 @@ class TelegramClient
                 'body' => $response->json() ?? $response->body(),
             ]);
 
+            // 409 = another getUpdates client is running; back off hard
+            if ($response->status() === 409) {
+                sleep(5);
+            }
+
             return null;
         }
 

@@ -13,15 +13,16 @@ class AuthController extends Controller
     public function login(Request $request)
     {
         $data = $request->validate([
-            'email' => ['required', 'email'],
+            'employee_id' => ['required', 'string', 'max:32'],
             'password' => ['required', 'string'],
         ]);
 
-        $user = User::query()->where('email', $data['email'])->first();
+        $employeeId = strtoupper(trim($data['employee_id']));
+        $user = User::query()->whereRaw('UPPER(employee_id) = ?', [$employeeId])->first();
 
         if (! $user || ! $user->active || ! Hash::check($data['password'], $user->password)) {
             throw ValidationException::withMessages([
-                'email' => 'Invalid credentials.',
+                'employee_id' => 'Invalid employee ID or password.',
             ]);
         }
 
@@ -52,9 +53,11 @@ class AuthController extends Controller
     {
         return [
             'id' => $user->id,
+            'employee_id' => $user->employee_id,
             'name' => $user->name,
             'email' => $user->email,
             'role' => $user->role,
+            'telegram_linked' => (bool) $user->telegram_chat_id,
         ];
     }
 }

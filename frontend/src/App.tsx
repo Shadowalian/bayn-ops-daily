@@ -28,7 +28,9 @@ function Shell() {
           {user.role === 'manager' && <NavLink to="/admin">Admin</NavLink>}
         </div>
         <div className="nav-user">
-          <span>{user.name}</span>
+          <span>
+            {user.name} · <code>{user.employee_id}</code>
+          </span>
           <button type="button" className="secondary small" onClick={() => logout()}>
             Log out
           </button>

@@ -2,10 +2,13 @@ const API_BASE = import.meta.env.VITE_API_URL || ''
 
 export type User = {
   id: number
+  employee_id: string
   name: string
-  email: string
+  email?: string
   role: 'member' | 'manager'
   telegram_chat_id?: string | null
+  telegram_linked?: boolean
+  active?: boolean
 }
 
 export type Task = {
@@ -42,6 +45,72 @@ export type DayPayload = {
   }
 }
 
+export type Dashboard = {
+  timezone: string
+  today: string
+  range: { from: string; to: string }
+  kpis: {
+    active_members: number
+    telegram_linked: number
+    telegram_link_rate: number
+    plans_submitted_today: number
+    days_closed_today: number
+    open_blockers_today: number
+    team_completion_today: number | null
+    team_completion_period: number | null
+    tasks_done_today: number
+    tasks_planned_today: number
+    tasks_done_period: number
+    tasks_planned_period: number
+  }
+  employees: Array<{
+    user: User
+    today: {
+      state: string
+      done: number
+      planned: number
+      completion: number | null
+      blockers: number
+      day_id: number | null
+      edit_unlocked: boolean
+    }
+    period: {
+      from: string
+      to: string
+      done: number
+      planned: number
+      not_done: number
+      completion: number | null
+      plans_submitted: number
+      days_closed: number
+      working_days: number
+      plan_submission_rate: number | null
+      close_rate: number | null
+      carry_over_hot: number
+    }
+  }>
+  reason_breakdown: Array<{ reason_code: string; count: number }>
+  daily_trend: Array<{ date: string; planned: number; done: number; completion: number | null }>
+  needs_attention: {
+    missing_plans: User[]
+    not_closed: User[]
+    not_linked: User[]
+    roadblocks: Array<{
+      employee_id: string | null
+      name: string
+      task_id: number
+      title: string
+      blocker_note: string | null
+    }>
+  }
+  directory_count: {
+    total: number
+    managers: number
+    members: number
+    inactive: number
+  }
+}
+
 type ApiError = { code?: string; message?: string; errors?: Record<string, string[]> }
 
 function authHeaders(): HeadersInit {
@@ -73,11 +142,22 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return res.json() as Promise<T>
 }
 
+export const REASON_LABELS: Record<string, string> = {
+  took_longer: 'Took longer than planned',
+  waiting_external: 'Waiting external',
+  waiting_internal: 'Waiting internal',
+  priority_changed: 'Priority changed',
+  interrupted: 'Interrupted',
+  blocked: 'Blocked',
+  other: 'Other',
+  unspecified: 'Unspecified',
+}
+
 export const api = {
-  login: (email: string, password: string) =>
+  login: (employee_id: string, password: string) =>
     request<{ token: string; user: User }>('/api/v1/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ employee_id, password }),
     }),
   me: () => request<{ user: User }>('/api/v1/auth/me'),
   logout: () => request<{ ok: boolean }>('/api/v1/auth/logout', { method: 'POST' }),
@@ -128,6 +208,39 @@ export const api = {
         not_linked: User[]
       }
     }>('/api/v1/team/today'),
+  dashboard: (from?: string, to?: string) => {
+    const q = new URLSearchParams()
+    if (from) q.set('from', from)
+    if (to) q.set('to', to)
+    const suffix = q.toString() ? `?${q}` : ''
+    return request<Dashboard>(`/api/v1/admin/dashboard${suffix}`)
+  },
+  listEmployees: () => request<{ employees: User[] }>('/api/v1/admin/employees'),
+  createEmployee: (payload: {
+    employee_id: string
+    name: string
+    email?: string
+    role: 'member' | 'manager'
+    password: string
+    active?: boolean
+  }) =>
+    request<User>('/api/v1/admin/employees', { method: 'POST', body: JSON.stringify(payload) }),
+  updateEmployee: (
+    id: number,
+    payload: Partial<{
+      employee_id: string
+      name: string
+      email: string | null
+      role: 'member' | 'manager'
+      password: string
+      active: boolean
+      telegram_chat_id: string | null
+      clear_telegram: boolean
+    }>
+  ) =>
+    request<User>(`/api/v1/admin/employees/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  deactivateEmployee: (id: number) =>
+    request<User>(`/api/v1/admin/employees/${id}`, { method: 'DELETE' }),
   botStatus: () =>
     request<{
       date: string
@@ -140,6 +253,7 @@ export const api = {
         day_id: number | null
         planned: number
         done: number
+        completion: number | null
       }>
     }>('/api/v1/admin/bot/status'),
   sendMorning: () =>
@@ -158,4 +272,16 @@ export const api = {
       reminder_times: { morning: string; evening: string }
       bot_token_set: boolean
     }>('/api/v1/settings'),
+  exportCsv: (table: 'tasks' | 'attendance' | 'reasons', from: string, to: string) => {
+    const token = localStorage.getItem('token')
+    const url = `${API_BASE}/api/v1/exports/${table}.csv?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+    return fetch(url, { headers: { Authorization: `Bearer ${token}` } }).then(async (res) => {
+      if (!res.ok) throw new Error('Export failed')
+      const blob = await res.blob()
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = `${table}-${from}-to-${to}.csv`
+      a.click()
+    })
+  },
 }

@@ -56,7 +56,9 @@ class TeamController extends Controller
         abort_unless($request->user()->isManager(), 403);
 
         return response()->json(
-            User::query()->orderBy('name')->get(['id', 'name', 'email', 'role', 'active', 'telegram_chat_id'])
+            User::query()->orderBy('employee_id')->get([
+                'id', 'employee_id', 'name', 'email', 'role', 'active', 'telegram_chat_id',
+            ])
         );
     }
 }

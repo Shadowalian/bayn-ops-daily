@@ -263,6 +263,7 @@ class DayService
             return [
                 'user' => [
                     'id' => $user->id,
+                    'employee_id' => $user->employee_id,
                     'name' => $user->name,
                     'role' => $user->role,
                     'telegram_chat_id' => $user->telegram_chat_id,

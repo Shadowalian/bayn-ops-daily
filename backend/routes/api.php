@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\Api\AdminBotController;
+use App\Http\Controllers\Api\AdminDashboardController;
+use App\Http\Controllers\Api\AdminEmployeeController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\DayController;
 use App\Http\Controllers\Api\ExportController;
@@ -37,6 +39,12 @@ Route::prefix('v1')->group(function () {
             Route::post('/holidays', [SettingsController::class, 'storeHoliday']);
             Route::get('/users', [TeamController::class, 'users']);
             Route::get('/exports/{table}.csv', [ExportController::class, 'csv']);
+
+            Route::get('/admin/dashboard', [AdminDashboardController::class, 'show']);
+            Route::get('/admin/employees', [AdminEmployeeController::class, 'index']);
+            Route::post('/admin/employees', [AdminEmployeeController::class, 'store']);
+            Route::patch('/admin/employees/{user}', [AdminEmployeeController::class, 'update']);
+            Route::delete('/admin/employees/{user}', [AdminEmployeeController::class, 'destroy']);
 
             Route::get('/admin/bot/status', [AdminBotController::class, 'status']);
             Route::post('/admin/bot/morning', [AdminBotController::class, 'sendMorning']);

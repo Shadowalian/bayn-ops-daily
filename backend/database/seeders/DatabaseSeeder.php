@@ -16,17 +16,18 @@ class DatabaseSeeder extends Seeder
         }
 
         $users = [
-            ['name' => 'Ops Manager', 'email' => 'manager@bayn.local', 'role' => 'manager'],
-            ['name' => 'Hana', 'email' => 'hana@bayn.local', 'role' => 'member'],
-            ['name' => 'Abebe', 'email' => 'abebe@bayn.local', 'role' => 'member'],
-            ['name' => 'Sara', 'email' => 'sara@bayn.local', 'role' => 'member'],
-            ['name' => 'Yonas', 'email' => 'yonas@bayn.local', 'role' => 'member'],
+            ['employee_id' => 'MGR001', 'name' => 'Ops Manager', 'email' => 'manager@bayn.local', 'role' => 'manager'],
+            ['employee_id' => 'EMP001', 'name' => 'Hana', 'email' => 'hana@bayn.local', 'role' => 'member'],
+            ['employee_id' => 'EMP002', 'name' => 'Abebe', 'email' => 'abebe@bayn.local', 'role' => 'member'],
+            ['employee_id' => 'EMP003', 'name' => 'Sara', 'email' => 'sara@bayn.local', 'role' => 'member'],
+            ['employee_id' => 'EMP004', 'name' => 'Yonas', 'email' => 'yonas@bayn.local', 'role' => 'member'],
         ];
 
         foreach ($users as $row) {
             User::query()->updateOrCreate(
                 ['email' => $row['email']],
                 [
+                    'employee_id' => $row['employee_id'],
                     'name' => $row['name'],
                     'role' => $row['role'],
                     'password' => Hash::make('password'),

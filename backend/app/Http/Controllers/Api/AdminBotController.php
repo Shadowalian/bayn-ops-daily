@@ -88,12 +88,13 @@ class AdminBotController extends Controller
             'bot_token_set' => (bool) config('services.telegram.bot_token'),
             'members' => collect($team)->map(fn ($row) => [
                 'user' => $row['user'],
-                'telegram_linked' => User::query()->where('id', $row['user']['id'])->value('telegram_chat_id') !== null,
+                'telegram_linked' => ! empty($row['user']['telegram_chat_id']),
                 'state' => $row['day']['state'] ?? 'not_started',
                 'edit_unlocked' => $row['day']['edit_unlocked'] ?? false,
                 'day_id' => $row['day']['id'] ?? null,
                 'planned' => $row['overall_planned'],
                 'done' => $row['overall_done'],
+                'completion' => $row['overall_completion'],
             ]),
         ]);
     }

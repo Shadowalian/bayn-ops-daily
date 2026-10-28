@@ -4,7 +4,7 @@ import { api, type User } from './api'
 type AuthState = {
   user: User | null
   loading: boolean
-  login: (email: string, password: string) => Promise<void>
+  login: (employeeId: string, password: string) => Promise<void>
   logout: () => Promise<void>
 }
 
@@ -27,8 +27,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => setLoading(false))
   }, [])
 
-  async function login(email: string, password: string) {
-    const res = await api.login(email, password)
+  async function login(employeeId: string, password: string) {
+    const res = await api.login(employeeId, password)
     localStorage.setItem('token', res.token)
     setUser(res.user)
   }

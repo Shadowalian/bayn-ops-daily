@@ -4,19 +4,19 @@ import { useAuth } from '../AuthContext'
 
 export default function Login() {
   const { user, login } = useAuth()
-  const [email, setEmail] = useState('hana@bayn.local')
-  const [password, setPassword] = useState('password')
+  const [employeeId, setEmployeeId] = useState('')
+  const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
-  if (user) return <Navigate to="/" replace />
+  if (user) return <Navigate to={user.role === 'manager' ? '/admin' : '/'} replace />
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
     setBusy(true)
     setError('')
     try {
-      await login(email, password)
+      await login(employeeId.trim().toUpperCase(), password)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed')
     } finally {
@@ -29,20 +29,34 @@ export default function Login() {
       <form className="panel login-panel" onSubmit={onSubmit}>
         <p className="eyebrow">BAYN TECHNOLOGIES</p>
         <h1>Ops Daily Check</h1>
-        <p className="muted">Telegram morning plan + evening review. Web for team & admin.</p>
+        <p className="muted">Sign in with your employee ID. Daily plans run on Telegram.</p>
         {error && <p className="error">{error}</p>}
         <label>
-          Email
-          <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" required autoComplete="username" />
+          Employee ID
+          <input
+            value={employeeId}
+            onChange={(e) => setEmployeeId(e.target.value.toUpperCase())}
+            type="text"
+            required
+            autoComplete="username"
+            placeholder="EMP001"
+            autoFocus
+          />
         </label>
         <label>
           Password
-          <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" required autoComplete="current-password" />
+          <input
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            type="password"
+            required
+            autoComplete="current-password"
+          />
         </label>
         <button type="submit" disabled={busy}>
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
-        <p className="hint">Demo: hana@bayn.local / password · manager@bayn.local / password</p>
+        <p className="hint">Ask your admin for your employee ID. Telegram: /start EMP001</p>
       </form>
     </div>
   )

@@ -65,7 +65,8 @@ export default function TeamToday() {
         <h2>Needs attention</h2>
         {attention.not_linked.length > 0 && (
           <p>
-            <strong>Not linked to Telegram:</strong> {attention.not_linked.map((u) => u.name).join(', ')}
+            <strong>Not linked to Telegram:</strong>{' '}
+            {attention.not_linked.map((u) => `${u.name} (${u.employee_id})`).join(', ')}
           </p>
         )}
         {attention.missing_plans.length > 0 && (
@@ -91,6 +92,7 @@ export default function TeamToday() {
           <table className="team-table">
             <thead>
               <tr>
+                <th>ID</th>
                 <th>Member</th>
                 <th>Done</th>
                 <th>Telegram</th>
@@ -104,6 +106,7 @@ export default function TeamToday() {
                   className={selectedId === row.user.id ? 'selected' : ''}
                   onClick={() => setSelectedId(row.user.id)}
                 >
+                  <td><code>{row.user.employee_id}</code></td>
                   <td>
                     <strong>{row.user.name}</strong>
                   </td>

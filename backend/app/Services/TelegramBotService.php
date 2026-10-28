@@ -179,26 +179,33 @@ class TelegramBotService
     private function handleStart(string $chatId, string $text, ?User $user): void
     {
         $parts = preg_split('/\s+/', $text, 2);
-        $email = isset($parts[1]) ? strtolower(trim($parts[1])) : null;
+        $employeeId = isset($parts[1]) ? strtoupper(trim($parts[1])) : null;
 
         if ($user) {
-            $this->telegram->sendMessage($chatId, "You're linked as <b>{$user->name}</b>. Wait for today's morning prompt.");
-
-            return;
-        }
-
-        if (! $email) {
             $this->telegram->sendMessage(
                 $chatId,
-                "Welcome to Ops Daily Check.\nLink your account with:\n<code>/start your@email.com</code>"
+                "You're linked as <b>{$user->name}</b> ({$user->employee_id}). Wait for today's morning prompt."
             );
 
             return;
         }
 
-        $found = User::query()->whereRaw('LOWER(email) = ?', [$email])->where('active', true)->first();
+        if (! $employeeId) {
+            $this->telegram->sendMessage(
+                $chatId,
+                "Welcome to Ops Daily Check.\nLink your account with your employee ID:\n<code>/start EMP001</code>"
+            );
+
+            return;
+        }
+
+        $found = User::query()
+            ->whereRaw('UPPER(employee_id) = ?', [$employeeId])
+            ->where('active', true)
+            ->first();
+
         if (! $found) {
-            $this->telegram->sendMessage($chatId, 'No active user found for that email. Ask your admin.');
+            $this->telegram->sendMessage($chatId, 'No active employee found for that ID. Ask your admin.');
 
             return;
         }
@@ -206,7 +213,7 @@ class TelegramBotService
         $found->update(['telegram_chat_id' => $chatId]);
         $this->telegram->sendMessage(
             $chatId,
-            "Linked! Hi <b>{$found->name}</b>. Your admin will send the morning task prompt when ready."
+            "Linked! Hi <b>{$found->name}</b> ({$found->employee_id}). Your admin will send the morning task prompt when ready."
         );
     }
 

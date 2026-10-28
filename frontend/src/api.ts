@@ -1,4 +1,7 @@
-const API_BASE = import.meta.env.VITE_API_URL || ''
+const API_BASE = (
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.PROD ? 'https://bayn-ops-api.onrender.com' : '')
+).replace(/\/$/, '')
 
 export type User = {
   id: number
@@ -122,6 +125,18 @@ function authHeaders(): HeadersInit {
   }
 }
 
+async function parseJson<T>(res: Response): Promise<T> {
+  const text = await res.text()
+  if (!text) return undefined as T
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    throw new Error(
+      `API returned non-JSON (${res.status}). Check VITE_API_URL points at the Render API.`
+    )
+  }
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
@@ -131,7 +146,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (!res.ok) {
     let body: ApiError = {}
     try {
-      body = await res.json()
+      body = await parseJson<ApiError>(res)
     } catch {
       /* ignore */
     }
@@ -139,7 +154,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
 
   if (res.status === 204) return undefined as T
-  return res.json() as Promise<T>
+  return parseJson<T>(res)
 }
 
 export const REASON_LABELS: Record<string, string> = {

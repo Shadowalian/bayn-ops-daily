@@ -15,7 +15,7 @@ class TeamController extends Controller
     public function today(Request $request)
     {
         $date = $request->query('date', AppTime::today());
-        $rows = $this->days->teamToday($date);
+        $rows = $this->days->teamToday($date, includeTasks: true);
 
         $needsAttention = [
             'missing_plans' => [],

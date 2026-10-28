@@ -11,10 +11,13 @@ class DayService
 {
     public function getOrCreateToday(User $user): Day
     {
-        return Day::query()->firstOrCreate(
+        $day = Day::query()->firstOrCreate(
             ['user_id' => $user->id, 'date' => AppTime::today()],
             ['work_status' => 'working']
-        )->fresh('tasks');
+        );
+        $day->loadMissing('tasks');
+
+        return $day;
     }
 
     public function submitPlan(User $user): Day
@@ -243,24 +246,27 @@ class DayService
         ]);
     }
 
-    public function teamToday(?string $date = null): array
+    public function teamToday(?string $date = null, bool $includeTasks = false): array
     {
         $date ??= AppTime::today();
         $users = User::query()->where('active', true)->orderBy('name')->get();
+        $userIds = $users->pluck('id');
 
-        return $users->map(function (User $user) use ($date) {
-            $day = Day::query()
-                ->with('tasks')
-                ->where('user_id', $user->id)
-                ->whereDate('date', $date)
-                ->first();
+        $days = Day::query()
+            ->with('tasks')
+            ->whereIn('user_id', $userIds)
+            ->where('date', $date)
+            ->get()
+            ->keyBy('user_id');
 
+        return $users->map(function (User $user) use ($days, $includeTasks) {
+            $day = $days->get($user->id);
             $tasks = ($day?->tasks ?? collect())->where('result', '!=', 'dropped');
             $done = $tasks->where('result', 'done')->count();
             $planned = $tasks->count();
             $blockers = $tasks->where('blocked', true)->values();
 
-            return [
+            $row = [
                 'user' => [
                     'id' => $user->id,
                     'employee_id' => $user->employee_id,
@@ -299,8 +305,13 @@ class DayService
                         'reason_note' => $t->reason_note,
                         'carry_count' => $t->carry_count,
                     ])->values(),
-                'tasks' => $tasks->values(),
             ];
+
+            if ($includeTasks) {
+                $row['tasks'] = $tasks->values();
+            }
+
+            return $row;
         })->values()->all();
     }
 }

@@ -22,11 +22,13 @@ services:
       - key: DB_CONNECTION
         value: pgsql
       - key: SESSION_DRIVER
-        value: database
+        value: file
       - key: CACHE_STORE
-        value: database
+        value: file
       - key: QUEUE_CONNECTION
         value: database
+      - key: TELEGRAM_USE_POLLING
+        value: "0"
       - key: FRONTEND_URL
         value: https://bayn-ops-daily.vercel.app
       - key: CORS_ALLOWED_ORIGINS

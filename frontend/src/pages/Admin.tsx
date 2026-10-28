@@ -37,30 +37,49 @@ export default function Admin() {
     password: '',
   })
 
-  const load = useCallback(async () => {
+  const loadDashboard = useCallback(async () => {
     try {
-      const [dashboard, emp, settings] = await Promise.all([
-        api.dashboard(from, to),
-        api.listEmployees(),
-        api.getSettings(),
-      ])
+      const dashboard = await api.dashboard(from, to)
       setDash(dashboard)
-      setEmployees(emp.employees)
-      setMorning(settings.reminder_times?.morning || '09:00')
-      setEvening(settings.reminder_times?.evening || '17:30')
       setError('')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load admin')
     }
   }, [from, to])
 
+  const loadEmployees = useCallback(async () => {
+    try {
+      const emp = await api.listEmployees()
+      setEmployees(emp.employees)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load employees')
+    }
+  }, [])
+
+  const load = useCallback(async () => {
+    await Promise.all([
+      loadDashboard(),
+      tab === 'employees' ? loadEmployees() : Promise.resolve(),
+    ])
+  }, [loadDashboard, loadEmployees, tab])
+
   useEffect(() => {
-    if (user?.role === 'manager') load()
-    const id = setInterval(() => {
-      if (user?.role === 'manager') load()
-    }, 60000)
+    if (user?.role !== 'manager') return
+    api
+      .getSettings()
+      .then((settings) => {
+        setMorning(settings.reminder_times?.morning || '09:00')
+        setEvening(settings.reminder_times?.evening || '17:30')
+      })
+      .catch(() => {})
+    loadDashboard()
+    const id = setInterval(loadDashboard, 120000)
     return () => clearInterval(id)
-  }, [user, load])
+  }, [user, loadDashboard])
+
+  useEffect(() => {
+    if (user?.role === 'manager' && tab === 'employees') loadEmployees()
+  }, [user, tab, loadEmployees])
 
   if (user && user.role !== 'manager') return <Navigate to="/" replace />
 

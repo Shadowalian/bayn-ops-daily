@@ -24,7 +24,7 @@ export default function TeamToday() {
 
   useEffect(() => {
     load()
-    const id = setInterval(load, 60000)
+    const id = setInterval(load, 120000)
     return () => clearInterval(id)
   }, [load])
 
@@ -130,9 +130,9 @@ export default function TeamToday() {
       {selected && (
         <section className="panel">
           <h2>{selected.user.name}'s plan</h2>
-          {selected.tasks.length === 0 && <p className="muted">No tasks yet.</p>}
+          {(selected.tasks?.length ?? 0) === 0 && <p className="muted">No tasks yet.</p>}
           <ul className="task-list">
-            {selected.tasks.map((t) => (
+            {(selected.tasks ?? []).map((t) => (
               <li key={t.id} className="task-card">
                 <div className="row between">
                   <strong>

@@ -176,6 +176,16 @@ export const api = {
     }),
   me: () => request<{ user: User }>('/api/v1/auth/me'),
   logout: () => request<{ ok: boolean }>('/api/v1/auth/logout', { method: 'POST' }),
+  history: (userId: number) =>
+    request<{ data: Array<{
+      id: number
+      date: string
+      work_status: string
+      check_in_at: string | null
+      check_out_at: string | null
+      closed_at: string | null
+      tasks: Array<{ id: number; title: string; tier: string; result: string }>
+    }> }>(`/api/v1/users/${userId}/days`),
   today: () => request<DayPayload>('/api/v1/days/today'),
   submitPlan: () =>
     request<DayPayload>('/api/v1/days/today/plan/submit', { method: 'POST' }),
@@ -214,7 +224,7 @@ export const api = {
           reason_code: string | null
           reason_note: string | null
         }>
-        tasks: Task[]
+        tasks?: Task[]
       }>
       needs_attention: {
         missing_plans: User[]

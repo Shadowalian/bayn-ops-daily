@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { api } from '../api'
 import { useAuth } from '../AuthContext'
 
 type DayRow = {
@@ -18,16 +19,10 @@ export default function History() {
 
   useEffect(() => {
     if (!user) return
-    const token = localStorage.getItem('token')
-    fetch(`/api/v1/users/${user.id}/days`, {
-      headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
-    })
-      .then(async (res) => {
-        if (!res.ok) throw new Error('Failed to load history')
-        return res.json()
-      })
+    api
+      .history(user.id)
       .then((json) => setDays(json.data || []))
-      .catch((err) => setError(err.message))
+      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load history'))
   }, [user])
 
   return (

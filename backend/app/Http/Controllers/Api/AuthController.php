@@ -18,7 +18,7 @@ class AuthController extends Controller
         ]);
 
         $employeeId = strtoupper(trim($data['employee_id']));
-        $user = User::query()->whereRaw('UPPER(employee_id) = ?', [$employeeId])->first();
+        $user = User::query()->where('employee_id', $employeeId)->first();
 
         if (! $user || ! $user->active || ! Hash::check($data['password'], $user->password)) {
             throw ValidationException::withMessages([

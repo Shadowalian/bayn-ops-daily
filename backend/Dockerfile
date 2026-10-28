@@ -2,8 +2,10 @@ FROM php:8.2-cli
 
 RUN apt-get update && apt-get install -y \
     git unzip libzip-dev libpng-dev libonig-dev libxml2-dev libpq-dev \
-    && docker-php-ext-install pdo_mysql pdo_pgsql zip mbstring bcmath \
+    && docker-php-ext-install pdo_mysql pdo_pgsql zip mbstring bcmath opcache \
     && rm -rf /var/lib/apt/lists/*
+
+COPY docker/opcache.ini /usr/local/etc/php/conf.d/opcache.ini
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 

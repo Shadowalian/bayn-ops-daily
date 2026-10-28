@@ -82,4 +82,25 @@ class TelegramClient
 
         return $result['result'] ?? [];
     }
+
+    public function setWebhook(string $url, ?string $secretToken = null): ?array
+    {
+        $payload = [
+            'url' => $url,
+            'drop_pending_updates' => false,
+            'allowed_updates' => json_encode(['message', 'callback_query']),
+        ];
+        if ($secretToken) {
+            $payload['secret_token'] = $secretToken;
+        }
+
+        return $this->api('setWebhook', $payload);
+    }
+
+    public function deleteWebhook(): ?array
+    {
+        return $this->api('deleteWebhook', [
+            'drop_pending_updates' => false,
+        ]);
+    }
 }

@@ -11,8 +11,13 @@ class DayService
 {
     public function getOrCreateToday(User $user): Day
     {
+        return $this->getOrCreateForDate($user, AppTime::today());
+    }
+
+    public function getOrCreateForDate(User $user, string $date): Day
+    {
         $day = Day::query()->firstOrCreate(
-            ['user_id' => $user->id, 'date' => AppTime::today()],
+            ['user_id' => $user->id, 'date' => $date],
             ['work_status' => 'working']
         );
         $day->loadMissing('tasks');
@@ -124,6 +129,8 @@ class DayService
             'day_id' => $day->id,
             'title' => $data['title'],
             'tier' => $data['tier'] ?? 'must',
+            'source' => $data['source'] ?? 'self',
+            'assigned_by' => $data['assigned_by'] ?? null,
             'position' => ($position ?? 0) + 1,
             'effort' => $data['effort'] ?? null,
             'added_after_cutoff' => (bool) $day->plan_submitted_at,

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\AdminAssignController;
 use App\Http\Controllers\Api\AdminBotController;
 use App\Http\Controllers\Api\AdminDashboardController;
 use App\Http\Controllers\Api\AdminEmployeeController;
@@ -46,6 +47,7 @@ Route::prefix('v1')->group(function () {
             Route::post('/admin/employees', [AdminEmployeeController::class, 'store']);
             Route::patch('/admin/employees/{user}', [AdminEmployeeController::class, 'update']);
             Route::delete('/admin/employees/{user}', [AdminEmployeeController::class, 'destroy']);
+            Route::post('/admin/assign-task', [AdminAssignController::class, 'store']);
 
             Route::get('/admin/bot/status', [AdminBotController::class, 'status']);
             Route::post('/admin/bot/morning', [AdminBotController::class, 'sendMorning']);

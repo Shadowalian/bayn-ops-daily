@@ -305,7 +305,8 @@ class TelegramBotService
             ."<code>1) First task\n"
             ."2) Second task\n"
             ."3) Third task</code>\n\n"
-            .'When you submit, your plan is locked for the day unless an admin unlocks edit.'
+            .'When you submit, your plan is locked for the day unless an admin unlocks edit.\n'
+            .'Admin-assigned tasks stay on your list even when you update your own tasks.'
         );
     }
 
@@ -384,21 +385,30 @@ class TelegramBotService
             return;
         }
 
+        // Replace only self-added tasks; keep admin-assigned work
         if ($day->edit_unlocked || ! $day->plan_submitted_at) {
-            $day->tasks()->where('result', '!=', 'dropped')->update([
-                'result' => 'dropped',
-                'reason_code' => 'other',
-                'reason_note' => 'Replaced after admin unlock',
-            ]);
+            $day->tasks()
+                ->where('result', '!=', 'dropped')
+                ->where(function ($q) {
+                    $q->where('source', 'self')->orWhereNull('source');
+                })
+                ->update([
+                    'result' => 'dropped',
+                    'reason_code' => 'other',
+                    'reason_note' => 'Replaced after plan update',
+                ]);
         }
 
-        foreach ($titles as $i => $title) {
+        $position = (int) ($day->tasks()->max('position') ?? 0);
+        foreach ($titles as $title) {
+            $position++;
             Task::query()->create([
                 'user_id' => $user->id,
                 'day_id' => $day->id,
                 'title' => mb_substr($title, 0, 200),
                 'tier' => 'must',
-                'position' => $i + 1,
+                'source' => 'self',
+                'position' => $position,
                 'result' => 'planned',
                 'added_after_cutoff' => false,
             ]);

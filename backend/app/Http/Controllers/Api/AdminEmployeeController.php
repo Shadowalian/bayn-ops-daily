@@ -25,12 +25,14 @@ class AdminEmployeeController extends Controller
 
     public function nextCode(Request $request)
     {
-        $role = $request->query('role', 'member');
-        abort_unless(in_array($role, ['member', 'manager'], true), 422);
+        $access = $request->query('role', 'member');
+        abort_unless(in_array($access, ['member', 'manager'], true), 422);
+        $prefix = strtoupper((string) $request->query('prefix', $access === 'manager' ? 'MGR' : 'EMP'));
+        $prefix = preg_replace('/[^A-Z0-9]/', '', $prefix) ?: ($access === 'manager' ? 'MGR' : 'EMP');
 
         return response()->json([
-            'employee_id' => $this->suggestCode($role),
-            'prefix' => $role === 'manager' ? 'MGR' : 'EMP',
+            'employee_id' => $this->suggestCode($prefix),
+            'prefix' => $prefix,
         ]);
     }
 
@@ -41,18 +43,12 @@ class AdminEmployeeController extends Controller
             'name' => ['required', 'string', 'max:120'],
             'email' => ['nullable', 'email', 'max:190', 'unique:users,email'],
             'role' => ['required', Rule::in(['member', 'manager'])],
+            'job_title' => ['nullable', 'string', 'max:120'],
             'password' => ['required', 'string', 'min:6', 'max:100'],
             'active' => ['sometimes', 'boolean'],
         ]);
 
         $employeeId = strtoupper(trim($data['employee_id']));
-        $prefix = $data['role'] === 'manager' ? 'MGR' : 'EMP';
-        if (! str_starts_with($employeeId, $prefix)) {
-            throw ValidationException::withMessages([
-                'employee_id' => "Employee codes for {$data['role']}s must start with {$prefix} (example: {$prefix}001).",
-            ]);
-        }
-
         $email = $data['email'] ?? strtolower($employeeId).'@bayn.local';
 
         $user = User::query()->create([
@@ -60,6 +56,7 @@ class AdminEmployeeController extends Controller
             'name' => $data['name'],
             'email' => $email,
             'role' => $data['role'],
+            'job_title' => isset($data['job_title']) ? trim($data['job_title']) : null,
             'password' => Hash::make($data['password']),
             'active' => $data['active'] ?? true,
         ]);
@@ -76,6 +73,7 @@ class AdminEmployeeController extends Controller
             'name' => ['sometimes', 'string', 'max:120'],
             'email' => ['sometimes', 'nullable', 'email', 'max:190', Rule::unique('users', 'email')->ignore($user->id)],
             'role' => ['sometimes', Rule::in(['member', 'manager'])],
+            'job_title' => ['sometimes', 'nullable', 'string', 'max:120'],
             'password' => ['sometimes', 'nullable', 'string', 'min:6', 'max:100'],
             'active' => ['sometimes', 'boolean'],
             'telegram_chat_id' => ['sometimes', 'nullable', 'string', 'max:64'],
@@ -84,6 +82,10 @@ class AdminEmployeeController extends Controller
 
         if (isset($data['employee_id'])) {
             $data['employee_id'] = strtoupper(trim($data['employee_id']));
+        }
+
+        if (array_key_exists('job_title', $data) && $data['job_title'] !== null) {
+            $data['job_title'] = trim((string) $data['job_title']) ?: null;
         }
 
         if (! empty($data['password'])) {
@@ -99,7 +101,7 @@ class AdminEmployeeController extends Controller
         }
         unset($data['clear_telegram']);
 
-        foreach (['employee_id', 'name', 'email', 'role', 'active', 'telegram_chat_id'] as $field) {
+        foreach (['employee_id', 'name', 'email', 'role', 'job_title', 'active', 'telegram_chat_id'] as $field) {
             if (array_key_exists($field, $data) && (string) $user->{$field} !== (string) ($data[$field] ?? '')) {
                 AuditLog::record(
                     $request->user()->id,
@@ -123,21 +125,29 @@ class AdminEmployeeController extends Controller
     {
         if ($user->id === $request->user()->id) {
             throw ValidationException::withMessages([
-                'user' => 'You cannot deactivate your own account.',
+                'user' => 'You cannot delete your own account.',
             ]);
         }
 
-        $user->update(['active' => false, 'telegram_chat_id' => null]);
+        $hard = $request->boolean('hard');
+        $code = $user->employee_id;
         $user->tokens()->delete();
 
+        if ($hard) {
+            AuditLog::record($request->user()->id, 'user', $user->id, 'deleted', $code, null, 'Employee permanently deleted');
+            $user->delete();
+
+            return response()->json(['ok' => true, 'deleted' => $code]);
+        }
+
+        $user->update(['active' => false, 'telegram_chat_id' => null]);
         AuditLog::record($request->user()->id, 'user', $user->id, 'active', true, false, 'Employee deactivated');
 
         return response()->json($this->payload($user->fresh()));
     }
 
-    private function suggestCode(string $role): string
+    private function suggestCode(string $prefix): string
     {
-        $prefix = $role === 'manager' ? 'MGR' : 'EMP';
         $ids = User::query()
             ->where('employee_id', 'like', $prefix.'%')
             ->pluck('employee_id');
@@ -160,6 +170,7 @@ class AdminEmployeeController extends Controller
             'name' => $user->name,
             'email' => $user->email,
             'role' => $user->role,
+            'job_title' => $user->job_title,
             'active' => (bool) $user->active,
             'telegram_chat_id' => $user->telegram_chat_id,
             'telegram_linked' => (bool) $user->telegram_chat_id,

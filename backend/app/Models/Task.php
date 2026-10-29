@@ -22,6 +22,8 @@ class Task extends Model
         'day_id',
         'title',
         'tier',
+        'source',
+        'assigned_by',
         'position',
         'result',
         'reason_code',

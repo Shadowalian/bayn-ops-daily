@@ -10,6 +10,7 @@ export type User = {
   name: string
   email?: string
   role: 'member' | 'manager'
+  job_title?: string | null
   telegram_chat_id?: string | null
   telegram_linked?: boolean
   active?: boolean
@@ -242,13 +243,17 @@ export const api = {
     return request<Dashboard>(`/api/v1/admin/dashboard${suffix}`)
   },
   listEmployees: () => request<{ employees: User[] }>('/api/v1/admin/employees'),
-  nextEmployeeCode: (role: 'member' | 'manager') =>
-    request<{ employee_id: string; prefix: string }>(`/api/v1/admin/employees/next-code?role=${role}`),
+  nextEmployeeCode: (role: 'member' | 'manager', prefix?: string) => {
+    const q = new URLSearchParams({ role })
+    if (prefix) q.set('prefix', prefix)
+    return request<{ employee_id: string; prefix: string }>(`/api/v1/admin/employees/next-code?${q}`)
+  },
   createEmployee: (payload: {
     employee_id: string
     name: string
     email?: string
     role: 'member' | 'manager'
+    job_title?: string
     password: string
     active?: boolean
   }) =>
@@ -260,6 +265,7 @@ export const api = {
       name: string
       email: string | null
       role: 'member' | 'manager'
+      job_title: string | null
       password: string
       active: boolean
       telegram_chat_id: string | null
@@ -269,6 +275,13 @@ export const api = {
     request<User>(`/api/v1/admin/employees/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   deactivateEmployee: (id: number) =>
     request<User>(`/api/v1/admin/employees/${id}`, { method: 'DELETE' }),
+  deleteEmployee: (id: number) =>
+    request<{ ok: boolean; deleted: string }>(`/api/v1/admin/employees/${id}?hard=1`, { method: 'DELETE' }),
+  assignTask: (payload: { user_id: number; title: string; date?: string }) =>
+    request<{ message: string; task: { id: number; title: string; employee_id: string; name: string } }>(
+      '/api/v1/admin/assign-task',
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
   botStatus: () =>
     request<{
       date: string

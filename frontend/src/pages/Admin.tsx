@@ -34,8 +34,11 @@ export default function Admin() {
     name: '',
     email: '',
     role: 'member' as 'member' | 'manager',
+    job_title: '',
     password: '',
   })
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [assign, setAssign] = useState({ user_id: '', title: '' })
 
   const loadDashboard = useCallback(async () => {
     try {
@@ -57,11 +60,8 @@ export default function Admin() {
   }, [])
 
   const load = useCallback(async () => {
-    await Promise.all([
-      loadDashboard(),
-      tab === 'employees' ? loadEmployees() : Promise.resolve(),
-    ])
-  }, [loadDashboard, loadEmployees, tab])
+    await Promise.all([loadDashboard(), loadEmployees()])
+  }, [loadDashboard, loadEmployees])
 
   useEffect(() => {
     if (user?.role !== 'manager') return
@@ -72,22 +72,18 @@ export default function Admin() {
         setEvening(settings.reminder_times?.evening || '17:30')
       })
       .catch(() => {})
-    loadDashboard()
+    load()
     const id = setInterval(loadDashboard, 120000)
     return () => clearInterval(id)
-  }, [user, loadDashboard])
+  }, [user, load, loadDashboard])
 
   useEffect(() => {
-    if (user?.role === 'manager' && tab === 'employees') loadEmployees()
-  }, [user, tab, loadEmployees])
-
-  useEffect(() => {
-    if (user?.role !== 'manager' || tab !== 'employees') return
+    if (user?.role !== 'manager' || tab !== 'employees' || editingId) return
     api
       .nextEmployeeCode(form.role)
       .then((r) => setForm((f) => (f.employee_id ? f : { ...f, employee_id: r.employee_id })))
       .catch(() => {})
-  }, [user, tab, form.role])
+  }, [user, tab, form.role, editingId])
 
   if (user && user.role !== 'manager') return <Navigate to="/" replace />
 
@@ -109,33 +105,76 @@ export default function Admin() {
   async function suggestCode(role: 'member' | 'manager') {
     try {
       const r = await api.nextEmployeeCode(role)
-      setForm((f) => ({ ...f, role, employee_id: r.employee_id }))
+      setForm((f) => ({ ...f, role, employee_id: editingId ? f.employee_id : r.employee_id }))
     } catch {
-      setForm((f) => ({ ...f, role, employee_id: role === 'manager' ? 'MGR001' : 'EMP001' }))
+      setForm((f) => ({ ...f, role, employee_id: editingId ? f.employee_id : role === 'manager' ? 'MGR001' : 'EMP001' }))
     }
+  }
+
+  function startEdit(emp: User) {
+    setEditingId(emp.id)
+    setForm({
+      employee_id: emp.employee_id,
+      name: emp.name,
+      email: emp.email || '',
+      role: emp.role,
+      job_title: emp.job_title || '',
+      password: '',
+    })
+    setTab('employees')
+  }
+
+  function resetForm() {
+    setEditingId(null)
+    setForm({ employee_id: '', name: '', email: '', role: 'member', job_title: '', password: '' })
+    api.nextEmployeeCode('member').then((r) => setForm((f) => ({ ...f, employee_id: r.employee_id }))).catch(() => {})
   }
 
   async function createEmployee(e: FormEvent) {
     e.preventDefault()
     await run(async () => {
+      if (editingId) {
+        await api.updateEmployee(editingId, {
+          employee_id: form.employee_id.trim().toUpperCase(),
+          name: form.name.trim(),
+          email: form.email.trim() || null,
+          role: form.role,
+          job_title: form.job_title.trim() || null,
+          ...(form.password ? { password: form.password } : {}),
+        })
+        resetForm()
+        return { message: 'Employee updated' }
+      }
       const created = await api.createEmployee({
         employee_id: form.employee_id.trim().toUpperCase(),
         name: form.name.trim(),
         email: form.email.trim() || undefined,
         role: form.role,
+        job_title: form.job_title.trim() || undefined,
         password: form.password,
       })
-      const next = await api.nextEmployeeCode(form.role).catch(() => ({ employee_id: '' }))
-      setForm({
-        employee_id: next.employee_id,
-        name: '',
-        email: '',
-        role: form.role,
-        password: '',
-      })
-      return { message: `Assigned ${created.employee_id} to ${created.name}` }
+      resetForm()
+      return { message: `Created ${created.employee_id} · ${created.name}` }
     })
   }
+
+  async function assignWork(e: FormEvent) {
+    e.preventDefault()
+    if (!assign.user_id || !assign.title.trim()) return
+    await run(async () => {
+      const res = await api.assignTask({
+        user_id: Number(assign.user_id),
+        title: assign.title.trim(),
+      })
+      setAssign({ user_id: assign.user_id, title: '' })
+      return { message: res.message }
+    })
+  }
+
+  const activeWorkers = useMemo(
+    () => employees.filter((e) => e.active && e.role === 'member'),
+    [employees]
+  )
 
   const sortedEmployees = useMemo(
     () => [...(dash?.employees || [])].sort((a, b) => (b.period.completion ?? -1) - (a.period.completion ?? -1)),
@@ -194,6 +233,36 @@ export default function Admin() {
             <Kpi label="Days closed" value={`${dash.kpis.days_closed_today}/${dash.kpis.active_members}`} hint="Evening complete" />
             <Kpi label="Open blockers" value={String(dash.kpis.open_blockers_today)} hint="Needs unblock" />
             <Kpi label="Telegram linked" value={`${dash.kpis.telegram_linked}/${dash.kpis.active_members}`} hint={`${dash.kpis.telegram_link_rate}% linked`} />
+          </section>
+
+          <section className="panel">
+            <h2>Assign work</h2>
+            <p className="muted">Adds a task to the employee’s day alongside tasks they submit themselves on Telegram.</p>
+            <form className="employee-form" onSubmit={assignWork}>
+              <select
+                required
+                value={assign.user_id}
+                onChange={(e) => setAssign({ ...assign, user_id: e.target.value })}
+              >
+                <option value="">Select employee</option>
+                {activeWorkers.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.employee_id} · {e.name}
+                    {e.job_title ? ` (${e.job_title})` : ''}
+                  </option>
+                ))}
+              </select>
+              <input
+                required
+                placeholder="Task to assign"
+                value={assign.title}
+                onChange={(e) => setAssign({ ...assign, title: e.target.value })}
+                maxLength={200}
+              />
+              <button type="submit" disabled={busy || !assign.user_id || !assign.title.trim()}>
+                Assign
+              </button>
+            </form>
           </section>
 
           <section className="panel">
@@ -304,30 +373,47 @@ export default function Admin() {
       {tab === 'employees' && (
         <>
           <section className="panel">
-            <h2>Create employee code &amp; assign person</h2>
+            <h2>{editingId ? 'Edit employee / code' : 'Create employee code'}</h2>
             <p className="muted">
-              Only admins use this web app. Create <code>EMP###</code> / <code>MGR###</code> codes here, assign people,
-              then they use Telegram only: tap <b>Start</b> → enter their code → submit daily tasks.
+              Use any code you want. <b>Job title</b> is free text (Sales, Engineer, Intern…).
+              Access = Admin (web) or Employee (Telegram only).
             </p>
             <form className="employee-form" onSubmit={createEmployee}>
-              <select
-                value={form.role}
-                onChange={(e) => suggestCode(e.target.value as 'member' | 'manager')}
-                aria-label="Role / code prefix"
-              >
-                <option value="member">Member (EMP)</option>
-                <option value="manager">Manager (MGR)</option>
-              </select>
               <input
                 required
-                placeholder="Code e.g. EMP005"
+                placeholder="Code e.g. EMP005 / SALES01"
                 value={form.employee_id}
                 onChange={(e) => setForm({ ...form, employee_id: e.target.value.toUpperCase() })}
               />
               <input required placeholder="Full name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+              <input
+                placeholder="Job title (Sales, Dev, Ops…)"
+                value={form.job_title}
+                onChange={(e) => setForm({ ...form, job_title: e.target.value })}
+              />
+              <select
+                value={form.role}
+                onChange={(e) => suggestCode(e.target.value as 'member' | 'manager')}
+                aria-label="Access level"
+              >
+                <option value="member">Employee (Telegram)</option>
+                <option value="manager">Admin (web)</option>
+              </select>
               <input placeholder="Email (optional)" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-              <input required type="password" placeholder="Temp password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} minLength={6} />
-              <button type="submit" disabled={busy}>Assign code</button>
+              <input
+                required={!editingId}
+                type="password"
+                placeholder={editingId ? 'New password (optional)' : 'Temp password'}
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+                minLength={editingId ? undefined : 6}
+              />
+              <button type="submit" disabled={busy}>{editingId ? 'Save changes' : 'Create'}</button>
+              {editingId && (
+                <button type="button" className="secondary" disabled={busy} onClick={resetForm}>
+                  Cancel edit
+                </button>
+              )}
             </form>
           </section>
 
@@ -337,9 +423,10 @@ export default function Admin() {
               <table className="team-table">
                 <thead>
                   <tr>
-                    <th>ID</th>
+                    <th>Code</th>
                     <th>Name</th>
-                    <th>Role</th>
+                    <th>Title</th>
+                    <th>Access</th>
                     <th>Active</th>
                     <th>Telegram</th>
                     <th>Actions</th>
@@ -350,11 +437,15 @@ export default function Admin() {
                     <tr key={emp.id}>
                       <td><code>{emp.employee_id}</code></td>
                       <td>{emp.name}</td>
-                      <td>{emp.role}</td>
+                      <td>{emp.job_title || '—'}</td>
+                      <td>{emp.role === 'manager' ? 'Admin' : 'Employee'}</td>
                       <td>{emp.active ? 'Yes' : 'No'}</td>
                       <td>{emp.telegram_linked ? 'Linked' : '—'}</td>
                       <td>
                         <div className="row gap wrap">
+                          <button type="button" className="secondary small" disabled={busy} onClick={() => startEdit(emp)}>
+                            Edit
+                          </button>
                           <button
                             type="button"
                             className="secondary small"
@@ -413,6 +504,23 @@ export default function Admin() {
                               }
                             >
                               Reactivate
+                            </button>
+                          )}
+                          {emp.id !== user?.id && (
+                            <button
+                              type="button"
+                              className="secondary small"
+                              disabled={busy}
+                              onClick={() => {
+                                if (!window.confirm(`Permanently delete ${emp.employee_id} (${emp.name})?`)) return
+                                run(async () => {
+                                  await api.deleteEmployee(emp.id)
+                                  if (editingId === emp.id) resetForm()
+                                  return { message: `${emp.employee_id} deleted` }
+                                })
+                              }}
+                            >
+                              Delete
                             </button>
                           )}
                         </div>

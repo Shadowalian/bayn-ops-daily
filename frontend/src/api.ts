@@ -272,9 +272,8 @@ export const api = {
     code_series_id: number
     employee_id?: string
     name: string
-    email?: string
     job_title?: string
-    password: string
+    password?: string
     active?: boolean
   }) =>
     request<User>('/api/v1/admin/employees', { method: 'POST', body: JSON.stringify(payload) }),
@@ -283,7 +282,6 @@ export const api = {
     payload: Partial<{
       employee_id: string
       name: string
-      email: string | null
       role: 'member' | 'manager'
       code_series_id: number | null
       job_title: string | null

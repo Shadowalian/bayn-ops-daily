@@ -8,6 +8,7 @@ use App\Models\CodeSeries;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -55,9 +56,8 @@ class AdminEmployeeController extends Controller
             'code_series_id' => ['required', 'integer', 'exists:code_series,id'],
             'employee_id' => ['sometimes', 'nullable', 'string', 'max:32', 'unique:users,employee_id', 'regex:/^[A-Za-z0-9_-]+$/'],
             'name' => ['required', 'string', 'max:120'],
-            'email' => ['nullable', 'email', 'max:190', 'unique:users,email'],
             'job_title' => ['nullable', 'string', 'max:120'],
-            'password' => ['required', 'string', 'min:6', 'max:100'],
+            'password' => ['sometimes', 'nullable', 'string', 'min:6', 'max:100'],
             'active' => ['sometimes', 'boolean'],
         ]);
 
@@ -78,16 +78,22 @@ class AdminEmployeeController extends Controller
             ]);
         }
 
-        $email = $data['email'] ?? strtolower($employeeId).'@bayn.local';
+        if ($series->access_role === 'manager' && empty($data['password'])) {
+            throw ValidationException::withMessages([
+                'password' => 'Admins need a login password for the web app.',
+            ]);
+        }
+
+        $password = $data['password'] ?? Str::password(24);
 
         $user = User::query()->create([
             'employee_id' => $employeeId,
             'code_series_id' => $series->id,
             'name' => $data['name'],
-            'email' => $email,
+            'email' => strtolower($employeeId).'@bayn.local',
             'role' => $series->access_role,
             'job_title' => isset($data['job_title']) ? trim($data['job_title']) : null,
-            'password' => Hash::make($data['password']),
+            'password' => Hash::make($password),
             'active' => $data['active'] ?? true,
         ]);
 

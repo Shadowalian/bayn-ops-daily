@@ -1,7 +1,8 @@
+// Always hit Render in production. Relative /api on Vercel returns HTML (SPA) and breaks JSON.parse.
 const API_BASE = (
   import.meta.env.VITE_API_URL ||
-  (import.meta.env.PROD ? 'https://bayn-ops-api.onrender.com' : '')
-).replace(/\/$/, '')
+  (import.meta.env.DEV ? '' : 'https://bayn-ops-api.onrender.com')
+).replace(/\/$/, '') || (import.meta.env.DEV ? '' : 'https://bayn-ops-api.onrender.com')
 
 export type User = {
   id: number

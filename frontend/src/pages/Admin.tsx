@@ -183,7 +183,8 @@ export default function Admin() {
         employee_id: form.employee_id.trim().toUpperCase() || undefined,
         name: form.name.trim(),
         job_title: form.job_title.trim() || undefined,
-        ...(needsLoginPassword ? { password: form.password } : {}),
+        // Members never see/use this; backend also auto-generates if omitted.
+        password: needsLoginPassword ? form.password : crypto.randomUUID().replace(/-/g, '').slice(0, 16),
       })
       resetPersonForm()
       return { message: `Created ${created.employee_id} · ${created.name}` }

@@ -301,8 +301,8 @@ export const api = {
   listCodeSeries: () => request<{ series: CodeSeries[] }>('/api/v1/admin/code-series'),
   createCodeSeries: (payload: {
     prefix: string
-    name: string
-    access_role: 'member' | 'manager'
+    name?: string
+    access_role?: 'member' | 'manager'
     next_number?: number
     pad_length?: number
     active?: boolean

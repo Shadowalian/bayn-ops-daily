@@ -51,6 +51,17 @@ export default function Admin() {
   })
   const [editingSeriesId, setEditingSeriesId] = useState<number | null>(null)
 
+  function resetSeriesForm() {
+    setEditingSeriesId(null)
+    setSeriesForm({ prefix: '', name: '', access_role: 'member', next_number: '1' })
+  }
+
+  function previewNextCode(prefix: string, nextNumber = 1, pad = 3) {
+    const clean = prefix.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')
+    if (!clean) return '…'
+    return `${clean}${String(nextNumber).padStart(pad, '0')}`
+  }
+
   const loadDashboard = useCallback(async () => {
     try {
       const dashboard = await api.dashboard(from, to)
@@ -177,26 +188,25 @@ export default function Admin() {
 
   async function saveSeries(e: FormEvent) {
     e.preventDefault()
+    const prefix = seriesForm.prefix.trim().toUpperCase()
     await run(async () => {
       if (editingSeriesId) {
         await api.updateCodeSeries(editingSeriesId, {
-          prefix: seriesForm.prefix.trim().toUpperCase(),
-          name: seriesForm.name.trim(),
+          prefix,
+          name: seriesForm.name.trim() || prefix,
           access_role: seriesForm.access_role,
           next_number: Number(seriesForm.next_number) || 1,
         })
-        setEditingSeriesId(null)
-        setSeriesForm({ prefix: '', name: '', access_role: 'member', next_number: '1' })
+        resetSeriesForm()
         return { message: 'Code series updated' }
       }
-      await api.createCodeSeries({
-        prefix: seriesForm.prefix.trim().toUpperCase(),
-        name: seriesForm.name.trim(),
-        access_role: seriesForm.access_role,
-        next_number: Number(seriesForm.next_number) || 1,
+      const created = await api.createCodeSeries({
+        prefix,
+        name: prefix,
+        access_role: prefix.startsWith('MGR') ? 'manager' : 'member',
       })
-      setSeriesForm({ prefix: '', name: '', access_role: 'member', next_number: '1' })
-      return { message: 'Code series created' }
+      resetSeriesForm()
+      return { message: `Series ${created.prefix} ready — next code ${created.next_code}` }
     })
   }
 
@@ -428,7 +438,9 @@ export default function Admin() {
           <section className="panel">
             <h2>{editingSeriesId ? 'Edit code series' : 'Create code series'}</h2>
             <p className="muted">
-              Structure first: create prefixes like <code>EMP</code>, <code>SALES</code>, <code>MGR</code>. Then assign people under a series — codes auto-generate (<code>EMP001</code>…).
+              Type only the prefix (e.g. <code>EMP</code>, <code>SALES</code>). Numbers are assigned automatically —
+              first person gets <code>{previewNextCode(seriesForm.prefix || 'EMP')}</code>, then the next, and so on.
+              Prefixes starting with <code>MGR</code> become admin web access.
             </p>
             <form className="employee-form" onSubmit={saveSeries}>
               <input
@@ -437,38 +449,41 @@ export default function Admin() {
                 value={seriesForm.prefix}
                 onChange={(e) => setSeriesForm({ ...seriesForm, prefix: e.target.value.toUpperCase() })}
               />
-              <input
-                required
-                placeholder="Series name e.g. Employees"
-                value={seriesForm.name}
-                onChange={(e) => setSeriesForm({ ...seriesForm, name: e.target.value })}
-              />
-              <select
-                value={seriesForm.access_role}
-                onChange={(e) => setSeriesForm({ ...seriesForm, access_role: e.target.value as 'member' | 'manager' })}
-              >
-                <option value="member">Employee (Telegram)</option>
-                <option value="manager">Admin (web)</option>
-              </select>
-              <input
-                type="number"
-                min={1}
-                placeholder="Next number"
-                value={seriesForm.next_number}
-                onChange={(e) => setSeriesForm({ ...seriesForm, next_number: e.target.value })}
-              />
+              {editingSeriesId ? (
+                <>
+                  <input
+                    placeholder="Display name (optional)"
+                    value={seriesForm.name}
+                    onChange={(e) => setSeriesForm({ ...seriesForm, name: e.target.value })}
+                  />
+                  <select
+                    value={seriesForm.access_role}
+                    onChange={(e) =>
+                      setSeriesForm({ ...seriesForm, access_role: e.target.value as 'member' | 'manager' })
+                    }
+                  >
+                    <option value="member">Employee (Telegram)</option>
+                    <option value="manager">Admin (web)</option>
+                  </select>
+                  <input
+                    type="number"
+                    min={1}
+                    title="Next number in the sequence"
+                    placeholder="Next number"
+                    value={seriesForm.next_number}
+                    onChange={(e) => setSeriesForm({ ...seriesForm, next_number: e.target.value })}
+                  />
+                </>
+              ) : (
+                <p className="muted" style={{ margin: 0, alignSelf: 'center' }}>
+                  Preview: <code>{previewNextCode(seriesForm.prefix)}</code>
+                </p>
+              )}
               <button type="submit" disabled={busy}>
                 {editingSeriesId ? 'Save series' : 'Create series'}
               </button>
               {editingSeriesId && (
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => {
-                    setEditingSeriesId(null)
-                    setSeriesForm({ prefix: '', name: '', access_role: 'member', next_number: '1' })
-                  }}
-                >
+                <button type="button" className="secondary" onClick={resetSeriesForm}>
                   Cancel
                 </button>
               )}

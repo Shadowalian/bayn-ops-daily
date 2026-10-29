@@ -26,17 +26,20 @@ class AdminCodeSeriesController extends Controller
     {
         $data = $request->validate([
             'prefix' => ['required', 'string', 'max:16', 'regex:/^[A-Za-z0-9]+$/', 'unique:code_series,prefix'],
-            'name' => ['required', 'string', 'max:120'],
-            'access_role' => ['required', Rule::in(['member', 'manager'])],
+            'name' => ['sometimes', 'nullable', 'string', 'max:120'],
+            'access_role' => ['sometimes', Rule::in(['member', 'manager'])],
             'next_number' => ['sometimes', 'integer', 'min:1'],
             'pad_length' => ['sometimes', 'integer', 'min:1', 'max:6'],
             'active' => ['sometimes', 'boolean'],
         ]);
 
+        $prefix = strtoupper(trim($data['prefix']));
+        $accessRole = $data['access_role'] ?? (str_starts_with($prefix, 'MGR') ? 'manager' : 'member');
+
         $series = CodeSeries::query()->create([
-            'prefix' => strtoupper(trim($data['prefix'])),
-            'name' => trim($data['name']),
-            'access_role' => $data['access_role'],
+            'prefix' => $prefix,
+            'name' => trim((string) ($data['name'] ?? '')) ?: $prefix,
+            'access_role' => $accessRole,
             'next_number' => $data['next_number'] ?? 1,
             'pad_length' => $data['pad_length'] ?? 3,
             'active' => $data['active'] ?? true,

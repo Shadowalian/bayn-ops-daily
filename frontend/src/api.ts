@@ -241,6 +241,8 @@ export const api = {
     return request<Dashboard>(`/api/v1/admin/dashboard${suffix}`)
   },
   listEmployees: () => request<{ employees: User[] }>('/api/v1/admin/employees'),
+  nextEmployeeCode: (role: 'member' | 'manager') =>
+    request<{ employee_id: string; prefix: string }>(`/api/v1/admin/employees/next-code?role=${role}`),
   createEmployee: (payload: {
     employee_id: string
     name: string

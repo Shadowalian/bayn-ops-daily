@@ -3,11 +3,9 @@
 namespace App\Services;
 
 use App\Models\Day;
-use App\Models\Setting;
 use App\Models\Task;
 use App\Models\User;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Log;
 
 class TelegramBotService
 {
@@ -29,6 +27,15 @@ class TelegramBotService
         }
     }
 
+    public function registerBotUi(): void
+    {
+        $this->telegram->setMyCommands([
+            ['command' => 'start', 'description' => 'Start BAYN OPS / link employee code'],
+            ['command' => 'tasks', 'description' => 'Enter today’s daily tasks'],
+            ['command' => 'help', 'description' => 'How to use the bot'],
+        ]);
+    }
+
     public function promptMorning(User $user): bool
     {
         if (! $user->telegram_chat_id || ! $user->active) {
@@ -47,21 +54,7 @@ class TelegramBotService
         }
 
         $day->update(['morning_prompted_at' => now('UTC')]);
-        $this->setState($user->telegram_chat_id, [
-            'phase' => 'awaiting_plan',
-            'day_id' => $day->id,
-        ]);
-
-        $this->telegram->sendMessage(
-            $user->telegram_chat_id,
-            "Good morning <b>{$user->name}</b> ☀️\n\n"
-            ."Could you give me your daily tasks?\n"
-            ."Reply like this:\n\n"
-            ."1) First task\n"
-            ."2) Second task\n"
-            ."3) Third task\n\n"
-            .'When you send that message, your plan is locked. To edit later you must ask the admin.'
-        );
+        $this->askForDailyTasks($user, $day);
 
         return true;
     }
@@ -139,24 +132,48 @@ class TelegramBotService
         }
 
         $user = User::query()->where('telegram_chat_id', $chatId)->first();
+        $normalized = mb_strtolower($text);
+        $isStart = str_starts_with($text, '/start')
+            || in_array($normalized, ['start', '🚀 start', '🚀start'], true)
+            || str_starts_with($normalized, '🚀 start');
 
-        if (str_starts_with($text, '/start')) {
+        if ($isStart) {
             $this->handleStart($chatId, $text, $user);
 
             return;
         }
 
-        if (! $user) {
-            $this->telegram->sendMessage(
-                $chatId,
-                "I don't know this chat yet.\nSend: <code>/start your@email.com</code>\n(use the email registered in Ops Daily Check)"
-            );
+        if (str_starts_with($text, '/help') || $normalized === 'help') {
+            $this->sendHelp($chatId, $user);
+
+            return;
+        }
+
+        if (str_starts_with($text, '/tasks') || $normalized === '📝 today\'s tasks' || $normalized === "📝 today's tasks") {
+            if (! $user) {
+                $this->askToPressStart($chatId);
+
+                return;
+            }
+            $this->promptMorning($user);
 
             return;
         }
 
         $state = $this->getState($chatId);
         $phase = $state['phase'] ?? 'idle';
+
+        if ($phase === 'awaiting_employee_code') {
+            $this->receiveEmployeeCode($chatId, $text);
+
+            return;
+        }
+
+        if (! $user) {
+            $this->askToPressStart($chatId);
+
+            return;
+        }
 
         if ($phase === 'awaiting_plan') {
             $this->receivePlan($user, $chatId, $text, $state);
@@ -172,49 +189,172 @@ class TelegramBotService
 
         $this->telegram->sendMessage(
             $chatId,
-            "Hi {$user->name}. Wait for the morning or evening prompt from your admin, or ask them if you need an edit unlock."
+            "Hi <b>{$user->name}</b>. Tap <b>📝 Today's tasks</b> to submit your plan, or wait for the admin morning/evening prompt.",
+            $this->linkedKeyboard()
         );
     }
 
     private function handleStart(string $chatId, string $text, ?User $user): void
     {
-        $parts = preg_split('/\s+/', $text, 2);
-        $employeeId = isset($parts[1]) ? strtoupper(trim($parts[1])) : null;
+        $parts = preg_split('/\s+/', $text, 2) ?: [];
+        $maybeCode = isset($parts[1]) ? strtoupper(trim($parts[1])) : null;
+        if ($maybeCode && preg_match('/^[A-Z0-9_-]+$/', $maybeCode) && ! str_starts_with(strtolower($maybeCode), 'start')) {
+            $this->linkEmployee($chatId, $maybeCode);
+
+            return;
+        }
 
         if ($user) {
             $this->telegram->sendMessage(
                 $chatId,
-                "You're linked as <b>{$user->name}</b> ({$user->employee_id}). Wait for today's morning prompt."
+                "Welcome back, <b>{$user->name}</b> ({$user->employee_id}).\n\n"
+                .'Tap <b>📝 Today\'s tasks</b> when you are ready to plan your day.',
+                $this->linkedKeyboard()
             );
+            $this->promptMorning($user);
 
             return;
         }
 
-        if (! $employeeId) {
+        $this->setState($chatId, ['phase' => 'awaiting_employee_code']);
+        $this->telegram->sendMessage(
+            $chatId,
+            "Welcome to <b>BAYN OPS</b> 👋\n\n"
+            .'Please send your <b>employee code</b> (example: <code>EMP001</code> or <code>MGR001</code>).\n'
+            .'Your admin creates and assigns that code.',
+            $this->startKeyboard()
+        );
+    }
+
+    private function receiveEmployeeCode(string $chatId, string $text): void
+    {
+        $code = strtoupper(trim($text));
+        $code = preg_replace('/^\/start\s+/i', '', $code) ?? $code;
+        if (! preg_match('/^[A-Z0-9_-]+$/', $code)) {
             $this->telegram->sendMessage(
                 $chatId,
-                "Welcome to Ops Daily Check.\nLink your account with your employee ID:\n<code>/start EMP001</code>"
+                'That does not look like an employee code. Send something like <code>EMP001</code>.'
             );
 
             return;
         }
 
+        $this->linkEmployee($chatId, $code);
+    }
+
+    private function linkEmployee(string $chatId, string $employeeId): void
+    {
         $found = User::query()
-            ->whereRaw('UPPER(employee_id) = ?', [$employeeId])
+            ->where('employee_id', $employeeId)
             ->where('active', true)
             ->first();
 
         if (! $found) {
-            $this->telegram->sendMessage($chatId, 'No active employee found for that ID. Ask your admin.');
+            $this->setState($chatId, ['phase' => 'awaiting_employee_code']);
+            $this->telegram->sendMessage(
+                $chatId,
+                'No active employee found for that code. Ask your admin to create/assign your code, then try again.'
+            );
 
             return;
         }
 
+        // One Telegram chat per employee; free previous chat if re-linking
+        User::query()
+            ->where('telegram_chat_id', $chatId)
+            ->where('id', '!=', $found->id)
+            ->update(['telegram_chat_id' => null]);
+
         $found->update(['telegram_chat_id' => $chatId]);
+        $this->clearState($chatId);
+
         $this->telegram->sendMessage(
             $chatId,
-            "Linked! Hi <b>{$found->name}</b> ({$found->employee_id}). Your admin will send the morning task prompt when ready."
+            "Hello <b>{$found->name}</b> 👋\n"
+            ."Welcome to <b>BAYN OPS</b>.\n\n"
+            .'Kindly provide your daily tasks using the table below, then send your list.',
+            $this->linkedKeyboard()
         );
+
+        $day = $this->days->getOrCreateToday($found);
+        $this->askForDailyTasks($found, $day);
+    }
+
+    private function askForDailyTasks(User $user, Day $day): void
+    {
+        $this->setState((string) $user->telegram_chat_id, [
+            'phase' => 'awaiting_plan',
+            'day_id' => $day->id,
+        ]);
+
+        $table = "<pre>"
+            ."+----+---------------------------+\n"
+            ."| #  | Task                      |\n"
+            ."+----+---------------------------+\n"
+            ."| 1  |                           |\n"
+            ."| 2  |                           |\n"
+            ."| 3  |                           |\n"
+            ."+----+---------------------------+\n"
+            ."</pre>";
+
+        $this->telegram->sendMessage(
+            $user->telegram_chat_id,
+            "Kindly provide your daily tasks:\n\n"
+            .$table
+            ."\nReply like this (then send):\n"
+            ."<code>1) First task\n"
+            ."2) Second task\n"
+            ."3) Third task</code>\n\n"
+            .'When you submit, your plan is locked for the day unless an admin unlocks edit.'
+        );
+    }
+
+    private function askToPressStart(string $chatId): void
+    {
+        $this->telegram->sendMessage(
+            $chatId,
+            "Welcome to <b>BAYN OPS</b>.\nTap the <b>🚀 Start</b> button below to begin, then enter your employee code.",
+            $this->startKeyboard()
+        );
+    }
+
+    private function sendHelp(string $chatId, ?User $user): void
+    {
+        if (! $user) {
+            $this->askToPressStart($chatId);
+
+            return;
+        }
+
+        $this->telegram->sendMessage(
+            $chatId,
+            "<b>BAYN OPS help</b>\n"
+            ."• Your code: <code>{$user->employee_id}</code>\n"
+            ."• Tap <b>📝 Today's tasks</b> to submit your morning plan\n"
+            ."• Evening: answer ✅/❌ on each task when prompted\n"
+            .'• Only your admin can create codes and unlock edits',
+            $this->linkedKeyboard()
+        );
+    }
+
+    private function startKeyboard(): array
+    {
+        return [
+            'keyboard' => [[['text' => '🚀 Start']]],
+            'resize_keyboard' => true,
+            'one_time_keyboard' => true,
+        ];
+    }
+
+    private function linkedKeyboard(): array
+    {
+        return [
+            'keyboard' => [[
+                ['text' => "📝 Today's tasks"],
+                ['text' => '🚀 Start'],
+            ]],
+            'resize_keyboard' => true,
+        ];
     }
 
     private function receivePlan(User $user, string $chatId, string $text, array $state): void
@@ -232,7 +372,7 @@ class TelegramBotService
         if ($titles === []) {
             $this->telegram->sendMessage(
                 $chatId,
-                "I couldn't read any tasks. Send them numbered, for example:\n1) Call client\n2) Fix bug"
+                "I couldn't read any tasks. Send them numbered, for example:\n<code>1) Call client\n2) Fix bug</code>"
             );
 
             return;
@@ -244,7 +384,6 @@ class TelegramBotService
             return;
         }
 
-        // Replace plan when unlocked re-submit (keep history as dropped)
         if ($day->edit_unlocked || ! $day->plan_submitted_at) {
             $day->tasks()->where('result', '!=', 'dropped')->update([
                 'result' => 'dropped',
@@ -273,10 +412,15 @@ class TelegramBotService
         $this->clearState($chatId);
 
         $list = collect($titles)->map(fn ($t, $i) => ($i + 1).') '.$t)->implode("\n");
+        $quote = MotivationalQuote::forDate();
+
         $this->telegram->sendMessage(
             $chatId,
-            "Got it, <b>{$user->name}</b>. Plan locked ✅\n\n{$list}\n\n"
-            .'No more edits unless the admin unlocks you.'
+            "Thank you for your input, <b>{$user->name}</b> ✅\n"
+            ."Have a nice and productive day!\n\n"
+            ."Your plan:\n{$list}\n\n"
+            ."💬 <i>{$quote}</i>",
+            $this->linkedKeyboard()
         );
     }
 
@@ -315,7 +459,6 @@ class TelegramBotService
             return;
         }
 
-        // eve:{taskId}:done|not
         if (! preg_match('/^eve:(\d+):(done|not)$/', $data, $m)) {
             $this->telegram->answerCallback($callbackId);
 
@@ -368,12 +511,6 @@ class TelegramBotService
         $next = $day->tasks->first(fn (Task $t) => $t->result === 'planned');
 
         if (! $next) {
-            // Must have a result on every task
-            $unfinished = $day->tasks->contains(fn (Task $t) => $t->result === 'planned');
-            if ($unfinished) {
-                return;
-            }
-
             $day->update(['closed_at' => now('UTC')]);
             $this->clearState((string) $user->telegram_chat_id);
 
@@ -381,7 +518,8 @@ class TelegramBotService
             $total = $day->tasks->count();
             $this->telegram->sendMessage(
                 $user->telegram_chat_id,
-                "Saved: {$done}/{$total} done.\n\nGood night <b>{$user->name}</b> 🌙"
+                "Saved: {$done}/{$total} done.\n\nGood night <b>{$user->name}</b> 🌙",
+                $this->linkedKeyboard()
             );
 
             return;
@@ -424,7 +562,6 @@ class TelegramBotService
             }
         }
 
-        // Fallback: if user sent a single paragraph without numbers, treat each non-empty line as a task
         if ($titles === [] && count($lines) > 0) {
             foreach ($lines as $line) {
                 $line = trim($line);

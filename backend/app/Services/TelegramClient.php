@@ -103,4 +103,11 @@ class TelegramClient
             'drop_pending_updates' => false,
         ]);
     }
+
+    public function setMyCommands(array $commands): ?array
+    {
+        return $this->api('setMyCommands', [
+            'commands' => json_encode($commands),
+        ]);
+    }
 }

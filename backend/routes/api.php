@@ -42,6 +42,7 @@ Route::prefix('v1')->group(function () {
 
             Route::get('/admin/dashboard', [AdminDashboardController::class, 'show']);
             Route::get('/admin/employees', [AdminEmployeeController::class, 'index']);
+            Route::get('/admin/employees/next-code', [AdminEmployeeController::class, 'nextCode']);
             Route::post('/admin/employees', [AdminEmployeeController::class, 'store']);
             Route::patch('/admin/employees/{user}', [AdminEmployeeController::class, 'update']);
             Route::delete('/admin/employees/{user}', [AdminEmployeeController::class, 'destroy']);

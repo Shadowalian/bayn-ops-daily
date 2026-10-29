@@ -81,6 +81,14 @@ export default function Admin() {
     if (user?.role === 'manager' && tab === 'employees') loadEmployees()
   }, [user, tab, loadEmployees])
 
+  useEffect(() => {
+    if (user?.role !== 'manager' || tab !== 'employees') return
+    api
+      .nextEmployeeCode(form.role)
+      .then((r) => setForm((f) => (f.employee_id ? f : { ...f, employee_id: r.employee_id })))
+      .catch(() => {})
+  }, [user, tab, form.role])
+
   if (user && user.role !== 'manager') return <Navigate to="/" replace />
 
   async function run(action: () => Promise<{ message?: string } | unknown>) {
@@ -98,18 +106,34 @@ export default function Admin() {
     }
   }
 
+  async function suggestCode(role: 'member' | 'manager') {
+    try {
+      const r = await api.nextEmployeeCode(role)
+      setForm((f) => ({ ...f, role, employee_id: r.employee_id }))
+    } catch {
+      setForm((f) => ({ ...f, role, employee_id: role === 'manager' ? 'MGR001' : 'EMP001' }))
+    }
+  }
+
   async function createEmployee(e: FormEvent) {
     e.preventDefault()
     await run(async () => {
-      await api.createEmployee({
+      const created = await api.createEmployee({
         employee_id: form.employee_id.trim().toUpperCase(),
         name: form.name.trim(),
         email: form.email.trim() || undefined,
         role: form.role,
         password: form.password,
       })
-      setForm({ employee_id: '', name: '', email: '', role: 'member', password: '' })
-      return { message: 'Employee created' }
+      const next = await api.nextEmployeeCode(form.role).catch(() => ({ employee_id: '' }))
+      setForm({
+        employee_id: next.employee_id,
+        name: '',
+        email: '',
+        role: form.role,
+        password: '',
+      })
+      return { message: `Assigned ${created.employee_id} to ${created.name}` }
     })
   }
 
@@ -280,18 +304,30 @@ export default function Admin() {
       {tab === 'employees' && (
         <>
           <section className="panel">
-            <h2>Add employee</h2>
-            <p className="muted">Assign an employee ID. They sign in with that ID and link Telegram with <code>/start EMP001</code>.</p>
+            <h2>Create employee code &amp; assign person</h2>
+            <p className="muted">
+              Only admins create codes. Use <code>EMP###</code> for members and <code>MGR###</code> for managers,
+              assign the person, then they open Telegram → tap <b>Start</b> → enter that code.
+            </p>
             <form className="employee-form" onSubmit={createEmployee}>
-              <input required placeholder="Employee ID" value={form.employee_id} onChange={(e) => setForm({ ...form, employee_id: e.target.value.toUpperCase() })} />
+              <select
+                value={form.role}
+                onChange={(e) => suggestCode(e.target.value as 'member' | 'manager')}
+                aria-label="Role / code prefix"
+              >
+                <option value="member">Member (EMP)</option>
+                <option value="manager">Manager (MGR)</option>
+              </select>
+              <input
+                required
+                placeholder="Code e.g. EMP005"
+                value={form.employee_id}
+                onChange={(e) => setForm({ ...form, employee_id: e.target.value.toUpperCase() })}
+              />
               <input required placeholder="Full name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
               <input placeholder="Email (optional)" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-              <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as 'member' | 'manager' })}>
-                <option value="member">Member</option>
-                <option value="manager">Manager</option>
-              </select>
               <input required type="password" placeholder="Temp password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} minLength={6} />
-              <button type="submit" disabled={busy}>Create</button>
+              <button type="submit" disabled={busy}>Assign code</button>
             </form>
           </section>
 

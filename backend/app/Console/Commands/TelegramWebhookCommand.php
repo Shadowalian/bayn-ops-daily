@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Services\TelegramBotService;
 use App\Services\TelegramClient;
 use Illuminate\Console\Command;
 
@@ -11,7 +12,7 @@ class TelegramWebhookCommand extends Command
 
     protected $description = 'Register or remove the Telegram webhook URL';
 
-    public function handle(TelegramClient $client): int
+    public function handle(TelegramClient $client, TelegramBotService $bot): int
     {
         if (! $client->enabled()) {
             $this->error('TELEGRAM_BOT_TOKEN is not set.');
@@ -49,6 +50,7 @@ class TelegramWebhookCommand extends Command
             return self::FAILURE;
         }
 
+        $bot->registerBotUi();
         $this->info("Webhook set: {$url}");
 
         return self::SUCCESS;

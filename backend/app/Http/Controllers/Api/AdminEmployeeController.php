@@ -23,6 +23,17 @@ class AdminEmployeeController extends Controller
         return response()->json(['employees' => $users]);
     }
 
+    public function nextCode(Request $request)
+    {
+        $role = $request->query('role', 'member');
+        abort_unless(in_array($role, ['member', 'manager'], true), 422);
+
+        return response()->json([
+            'employee_id' => $this->suggestCode($role),
+            'prefix' => $role === 'manager' ? 'MGR' : 'EMP',
+        ]);
+    }
+
     public function store(Request $request)
     {
         $data = $request->validate([
@@ -35,6 +46,13 @@ class AdminEmployeeController extends Controller
         ]);
 
         $employeeId = strtoupper(trim($data['employee_id']));
+        $prefix = $data['role'] === 'manager' ? 'MGR' : 'EMP';
+        if (! str_starts_with($employeeId, $prefix)) {
+            throw ValidationException::withMessages([
+                'employee_id' => "Employee codes for {$data['role']}s must start with {$prefix} (example: {$prefix}001).",
+            ]);
+        }
+
         $email = $data['email'] ?? strtolower($employeeId).'@bayn.local';
 
         $user = User::query()->create([
@@ -115,6 +133,23 @@ class AdminEmployeeController extends Controller
         AuditLog::record($request->user()->id, 'user', $user->id, 'active', true, false, 'Employee deactivated');
 
         return response()->json($this->payload($user->fresh()));
+    }
+
+    private function suggestCode(string $role): string
+    {
+        $prefix = $role === 'manager' ? 'MGR' : 'EMP';
+        $ids = User::query()
+            ->where('employee_id', 'like', $prefix.'%')
+            ->pluck('employee_id');
+
+        $max = 0;
+        foreach ($ids as $id) {
+            if (preg_match('/^'.preg_quote($prefix, '/').'(\d+)$/', (string) $id, $m)) {
+                $max = max($max, (int) $m[1]);
+            }
+        }
+
+        return sprintf('%s%03d', $prefix, $max + 1);
     }
 
     private function payload(User $user): array

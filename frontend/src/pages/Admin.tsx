@@ -38,7 +38,6 @@ export default function Admin() {
     employee_id: '',
     name: '',
     job_title: '',
-    password: '',
   })
   const [editingId, setEditingId] = useState<number | null>(null)
   const [assign, setAssign] = useState({ user_id: '', title: '' })
@@ -138,7 +137,6 @@ export default function Admin() {
       employee_id: first?.next_code || '',
       name: '',
       job_title: '',
-      password: '',
     })
   }
 
@@ -149,16 +147,9 @@ export default function Admin() {
       employee_id: emp.employee_id,
       name: emp.name,
       job_title: emp.job_title || '',
-      password: '',
     })
     setTab('employees')
   }
-
-  const selectedSeries = useMemo(
-    () => series.find((s) => String(s.id) === form.code_series_id),
-    [series, form.code_series_id]
-  )
-  const needsLoginPassword = selectedSeries?.access_role === 'manager'
 
   async function savePerson(e: FormEvent) {
     e.preventDefault()
@@ -169,22 +160,17 @@ export default function Admin() {
           name: form.name.trim(),
           job_title: form.job_title.trim() || null,
           code_series_id: form.code_series_id ? Number(form.code_series_id) : null,
-          ...(form.password ? { password: form.password } : {}),
         })
         resetPersonForm()
         return { message: 'Employee updated' }
       }
       if (!form.code_series_id) throw new Error('Pick a code series first')
-      if (needsLoginPassword && form.password.trim().length < 6) {
-        throw new Error('Admins need a login password (min 6 characters)')
-      }
       const created = await api.createEmployee({
         code_series_id: Number(form.code_series_id),
         employee_id: form.employee_id.trim().toUpperCase() || undefined,
         name: form.name.trim(),
         job_title: form.job_title.trim() || undefined,
-        // Members never see/use this; backend also auto-generates if omitted.
-        password: needsLoginPassword ? form.password : crypto.randomUUID().replace(/-/g, '').slice(0, 16),
+        password: crypto.randomUUID().replace(/-/g, '').slice(0, 16),
       })
       resetPersonForm()
       return { message: `Created ${created.employee_id} · ${created.name}` }
@@ -604,17 +590,6 @@ export default function Admin() {
                 value={form.job_title}
                 onChange={(e) => setForm({ ...form, job_title: e.target.value })}
               />
-              {needsLoginPassword && (
-                <input
-                  required={!editingId}
-                  type="password"
-                  placeholder={editingId ? 'New login password (optional)' : 'Admin login password'}
-                  value={form.password}
-                  onChange={(e) => setForm({ ...form, password: e.target.value })}
-                  minLength={editingId ? undefined : 6}
-                  autoComplete="new-password"
-                />
-              )}
               <button type="submit" disabled={busy}>
                 {editingId ? 'Save person' : 'Create person'}
               </button>

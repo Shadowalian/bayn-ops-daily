@@ -78,12 +78,6 @@ class AdminEmployeeController extends Controller
             ]);
         }
 
-        if ($series->access_role === 'manager' && empty($data['password'])) {
-            throw ValidationException::withMessages([
-                'password' => 'Admins need a login password for the web app.',
-            ]);
-        }
-
         $password = $data['password'] ?? Str::password(24);
 
         $user = User::query()->create([

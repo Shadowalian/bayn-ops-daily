@@ -12,7 +12,7 @@ class SendRemindersCommand extends Command
 {
     protected $signature = 'ops:reminders {slot? : morning|evening} {--force : Ignore daily lock}';
 
-    protected $description = 'Send Telegram morning/evening prompts (admin times or manual slot)';
+    protected $description = 'Send Telegram morning/evening prompts within admin from–to windows (or manual slot)';
 
     public function handle(TelegramBotService $bot): int
     {
@@ -28,14 +28,11 @@ class SendRemindersCommand extends Command
             return $this->sendSlot($bot, $slot);
         }
 
-        $times = Setting::getValue('reminder_times', [
-            'morning' => '09:00',
-            'evening' => '17:30',
-        ]);
+        $windows = Setting::reminderWindows();
         $nowHm = AppTime::now()->format('H:i');
 
         foreach (['morning', 'evening'] as $name) {
-            if (($times[$name] ?? null) === $nowHm) {
+            if (Setting::timeInWindow($nowHm, $windows[$name])) {
                 $this->sendSlot($bot, $name);
             }
         }
@@ -58,7 +55,6 @@ class SendRemindersCommand extends Command
             return self::SUCCESS;
         }
 
-        // Explicit artisan/API calls always send; scheduled auto uses daily lock
         if (! $this->argument('slot') && Cache::has($lockKey) && ! $this->option('force')) {
             return self::SUCCESS;
         }

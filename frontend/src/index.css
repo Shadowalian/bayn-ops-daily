@@ -459,3 +459,111 @@ code {
   font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
   font-size: 0.88em;
 }
+
+.charts-grid {
+  display: grid;
+  gap: 1.25rem;
+}
+
+@media (min-width: 900px) {
+  .charts-grid {
+    grid-template-columns: 1.4fr 0.8fr;
+  }
+}
+
+.chart-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.chart-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+}
+
+.chart-grid {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.chart-axis {
+  fill: var(--muted);
+  font-size: 10px;
+}
+
+.chart-bar {
+  fill: var(--accent);
+}
+
+.gauge-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.gauge-card {
+  text-align: center;
+}
+
+.gauge-track {
+  stroke: #ebe4d4;
+}
+
+.gauge-fill {
+  stroke: var(--accent);
+  stroke-linecap: round;
+}
+
+.gauge-value {
+  font-size: 1.1rem;
+  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  fill: var(--ink);
+}
+
+.gauge-label {
+  margin: 0.15rem 0 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.donut-wrap {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.donut-track {
+  stroke: #ebe4d4;
+}
+
+.donut-center {
+  font-size: 1.1rem;
+  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  fill: var(--ink);
+}
+
+.donut-sub {
+  font-size: 0.7rem;
+  fill: var(--muted);
+}
+
+.donut-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+}
+
+.donut-legend .swatch {
+  display: inline-block;
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 2px;
+  margin-right: 0.35rem;
+  vertical-align: middle;
+}

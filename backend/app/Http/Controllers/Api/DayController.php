@@ -70,8 +70,8 @@ class DayController extends Controller
             'tasks' => $day->tasks->where('result', '!=', 'dropped')->values(),
             'settings' => [
                 'timezone' => AppTime::timezone(),
-                'morning_time' => data_get(\App\Models\Setting::getValue('reminder_times', []), 'morning', '09:00'),
-                'evening_time' => data_get(\App\Models\Setting::getValue('reminder_times', []), 'evening', '17:30'),
+                'morning_time' => \App\Models\Setting::reminderWindows()['morning'],
+                'evening_time' => \App\Models\Setting::reminderWindows()['evening'],
             ],
         ];
     }

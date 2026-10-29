@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
+use App\Models\CodeSeries;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -15,6 +16,7 @@ class AdminEmployeeController extends Controller
     public function index()
     {
         $users = User::query()
+            ->with('codeSeries')
             ->orderBy('role')
             ->orderBy('employee_id')
             ->get()
@@ -25,6 +27,17 @@ class AdminEmployeeController extends Controller
 
     public function nextCode(Request $request)
     {
+        if ($request->filled('series_id')) {
+            $series = CodeSeries::query()->findOrFail((int) $request->query('series_id'));
+
+            return response()->json([
+                'employee_id' => $series->peekNextCode(),
+                'prefix' => $series->prefix,
+                'series_id' => $series->id,
+                'access_role' => $series->access_role,
+            ]);
+        }
+
         $access = $request->query('role', 'member');
         abort_unless(in_array($access, ['member', 'manager'], true), 422);
         $prefix = strtoupper((string) $request->query('prefix', $access === 'manager' ? 'MGR' : 'EMP'));
@@ -39,23 +52,40 @@ class AdminEmployeeController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'employee_id' => ['required', 'string', 'max:32', 'unique:users,employee_id', 'regex:/^[A-Za-z0-9_-]+$/'],
+            'code_series_id' => ['required', 'integer', 'exists:code_series,id'],
+            'employee_id' => ['sometimes', 'nullable', 'string', 'max:32', 'unique:users,employee_id', 'regex:/^[A-Za-z0-9_-]+$/'],
             'name' => ['required', 'string', 'max:120'],
             'email' => ['nullable', 'email', 'max:190', 'unique:users,email'],
-            'role' => ['required', Rule::in(['member', 'manager'])],
             'job_title' => ['nullable', 'string', 'max:120'],
             'password' => ['required', 'string', 'min:6', 'max:100'],
             'active' => ['sometimes', 'boolean'],
         ]);
 
-        $employeeId = strtoupper(trim($data['employee_id']));
+        $series = CodeSeries::query()->findOrFail($data['code_series_id']);
+        if (! $series->active) {
+            throw ValidationException::withMessages([
+                'code_series_id' => 'That code series is inactive.',
+            ]);
+        }
+
+        $employeeId = ! empty($data['employee_id'])
+            ? strtoupper(trim($data['employee_id']))
+            : $series->allocateNextCode();
+
+        if (User::query()->where('employee_id', $employeeId)->exists()) {
+            throw ValidationException::withMessages([
+                'employee_id' => 'That employee code already exists.',
+            ]);
+        }
+
         $email = $data['email'] ?? strtolower($employeeId).'@bayn.local';
 
         $user = User::query()->create([
             'employee_id' => $employeeId,
+            'code_series_id' => $series->id,
             'name' => $data['name'],
             'email' => $email,
-            'role' => $data['role'],
+            'role' => $series->access_role,
             'job_title' => isset($data['job_title']) ? trim($data['job_title']) : null,
             'password' => Hash::make($data['password']),
             'active' => $data['active'] ?? true,
@@ -63,7 +93,7 @@ class AdminEmployeeController extends Controller
 
         AuditLog::record($request->user()->id, 'user', $user->id, 'created', null, $employeeId, 'Employee created');
 
-        return response()->json($this->payload($user), 201);
+        return response()->json($this->payload($user->load('codeSeries')), 201);
     }
 
     public function update(Request $request, User $user)
@@ -73,6 +103,7 @@ class AdminEmployeeController extends Controller
             'name' => ['sometimes', 'string', 'max:120'],
             'email' => ['sometimes', 'nullable', 'email', 'max:190', Rule::unique('users', 'email')->ignore($user->id)],
             'role' => ['sometimes', Rule::in(['member', 'manager'])],
+            'code_series_id' => ['sometimes', 'nullable', 'integer', 'exists:code_series,id'],
             'job_title' => ['sometimes', 'nullable', 'string', 'max:120'],
             'password' => ['sometimes', 'nullable', 'string', 'min:6', 'max:100'],
             'active' => ['sometimes', 'boolean'],
@@ -101,7 +132,14 @@ class AdminEmployeeController extends Controller
         }
         unset($data['clear_telegram']);
 
-        foreach (['employee_id', 'name', 'email', 'role', 'job_title', 'active', 'telegram_chat_id'] as $field) {
+        if (! empty($data['code_series_id'])) {
+            $series = CodeSeries::query()->find($data['code_series_id']);
+            if ($series) {
+                $data['role'] = $series->access_role;
+            }
+        }
+
+        foreach (['employee_id', 'name', 'email', 'role', 'job_title', 'code_series_id', 'active', 'telegram_chat_id'] as $field) {
             if (array_key_exists($field, $data) && (string) $user->{$field} !== (string) ($data[$field] ?? '')) {
                 AuditLog::record(
                     $request->user()->id,
@@ -167,6 +205,12 @@ class AdminEmployeeController extends Controller
         return [
             'id' => $user->id,
             'employee_id' => $user->employee_id,
+            'code_series_id' => $user->code_series_id,
+            'code_series' => $user->codeSeries ? [
+                'id' => $user->codeSeries->id,
+                'prefix' => $user->codeSeries->prefix,
+                'name' => $user->codeSeries->name,
+            ] : null,
             'name' => $user->name,
             'email' => $user->email,
             'role' => $user->role,

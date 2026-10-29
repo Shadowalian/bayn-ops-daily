@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Navigate } from 'react-router-dom'
-import { api, REASON_LABELS, type Dashboard, type User } from '../api'
+import { BarChart, DonutChart, Gauge } from '../components/Charts'
+import { api, REASON_LABELS, type CodeSeries, type Dashboard, type TimeWindow, type User } from '../api'
 import { useAuth } from '../AuthContext'
 
 type Tab = 'overview' | 'employees' | 'operations' | 'bot'
@@ -15,6 +16,8 @@ function todayMinus(days: number) {
   return d.toISOString().slice(0, 10)
 }
 
+const emptyWindow = (from: string, to: string): TimeWindow => ({ from, to })
+
 export default function Admin() {
   const { user } = useAuth()
   const [tab, setTab] = useState<Tab>('overview')
@@ -22,23 +25,31 @@ export default function Admin() {
   const [to, setTo] = useState(new Date().toISOString().slice(0, 10))
   const [dash, setDash] = useState<Dashboard | null>(null)
   const [employees, setEmployees] = useState<User[]>([])
-  const [morning, setMorning] = useState('09:00')
-  const [evening, setEvening] = useState('17:30')
+  const [series, setSeries] = useState<CodeSeries[]>([])
+  const [morning, setMorning] = useState<TimeWindow>(emptyWindow('08:30', '09:30'))
+  const [evening, setEvening] = useState<TimeWindow>(emptyWindow('17:00', '18:00'))
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [unlockNotes, setUnlockNotes] = useState<Record<number, string>>({})
 
   const [form, setForm] = useState({
+    code_series_id: '',
     employee_id: '',
     name: '',
     email: '',
-    role: 'member' as 'member' | 'manager',
     job_title: '',
     password: '',
   })
   const [editingId, setEditingId] = useState<number | null>(null)
   const [assign, setAssign] = useState({ user_id: '', title: '' })
+  const [seriesForm, setSeriesForm] = useState({
+    prefix: '',
+    name: '',
+    access_role: 'member' as 'member' | 'manager',
+    next_number: '1',
+  })
+  const [editingSeriesId, setEditingSeriesId] = useState<number | null>(null)
 
   const loadDashboard = useCallback(async () => {
     try {
@@ -51,25 +62,26 @@ export default function Admin() {
   }, [from, to])
 
   const loadEmployees = useCallback(async () => {
-    try {
-      const emp = await api.listEmployees()
-      setEmployees(emp.employees)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load employees')
-    }
+    const emp = await api.listEmployees()
+    setEmployees(emp.employees)
+  }, [])
+
+  const loadSeries = useCallback(async () => {
+    const res = await api.listCodeSeries()
+    setSeries(res.series)
   }, [])
 
   const load = useCallback(async () => {
-    await Promise.all([loadDashboard(), loadEmployees()])
-  }, [loadDashboard, loadEmployees])
+    await Promise.all([loadDashboard(), loadEmployees(), loadSeries()])
+  }, [loadDashboard, loadEmployees, loadSeries])
 
   useEffect(() => {
     if (user?.role !== 'manager') return
     api
       .getSettings()
       .then((settings) => {
-        setMorning(settings.reminder_times?.morning || '09:00')
-        setEvening(settings.reminder_times?.evening || '17:30')
+        setMorning(settings.reminder_times?.morning || emptyWindow('08:30', '09:30'))
+        setEvening(settings.reminder_times?.evening || emptyWindow('17:00', '18:00'))
       })
       .catch(() => {})
     load()
@@ -78,12 +90,18 @@ export default function Admin() {
   }, [user, load, loadDashboard])
 
   useEffect(() => {
-    if (user?.role !== 'manager' || tab !== 'employees' || editingId) return
+    if (!series.length || form.code_series_id || editingId) return
+    const first = series.find((s) => s.active && s.access_role === 'member') || series.find((s) => s.active)
+    if (first) setForm((f) => ({ ...f, code_series_id: String(first.id), employee_id: first.next_code }))
+  }, [series, form.code_series_id, editingId])
+
+  useEffect(() => {
+    if (!form.code_series_id || editingId) return
     api
-      .nextEmployeeCode(form.role)
-      .then((r) => setForm((f) => (f.employee_id ? f : { ...f, employee_id: r.employee_id })))
+      .nextEmployeeCode({ series_id: Number(form.code_series_id) })
+      .then((r) => setForm((f) => ({ ...f, employee_id: r.employee_id })))
       .catch(() => {})
-  }, [user, tab, form.role, editingId])
+  }, [form.code_series_id, editingId])
 
   if (user && user.role !== 'manager') return <Navigate to="/" replace />
 
@@ -102,35 +120,33 @@ export default function Admin() {
     }
   }
 
-  async function suggestCode(role: 'member' | 'manager') {
-    try {
-      const r = await api.nextEmployeeCode(role)
-      setForm((f) => ({ ...f, role, employee_id: editingId ? f.employee_id : r.employee_id }))
-    } catch {
-      setForm((f) => ({ ...f, role, employee_id: editingId ? f.employee_id : role === 'manager' ? 'MGR001' : 'EMP001' }))
-    }
+  function resetPersonForm() {
+    setEditingId(null)
+    const first = series.find((s) => s.active && s.access_role === 'member') || series.find((s) => s.active)
+    setForm({
+      code_series_id: first ? String(first.id) : '',
+      employee_id: first?.next_code || '',
+      name: '',
+      email: '',
+      job_title: '',
+      password: '',
+    })
   }
 
   function startEdit(emp: User) {
     setEditingId(emp.id)
     setForm({
+      code_series_id: emp.code_series_id ? String(emp.code_series_id) : '',
       employee_id: emp.employee_id,
       name: emp.name,
       email: emp.email || '',
-      role: emp.role,
       job_title: emp.job_title || '',
       password: '',
     })
     setTab('employees')
   }
 
-  function resetForm() {
-    setEditingId(null)
-    setForm({ employee_id: '', name: '', email: '', role: 'member', job_title: '', password: '' })
-    api.nextEmployeeCode('member').then((r) => setForm((f) => ({ ...f, employee_id: r.employee_id }))).catch(() => {})
-  }
-
-  async function createEmployee(e: FormEvent) {
+  async function savePerson(e: FormEvent) {
     e.preventDefault()
     await run(async () => {
       if (editingId) {
@@ -138,23 +154,49 @@ export default function Admin() {
           employee_id: form.employee_id.trim().toUpperCase(),
           name: form.name.trim(),
           email: form.email.trim() || null,
-          role: form.role,
           job_title: form.job_title.trim() || null,
+          code_series_id: form.code_series_id ? Number(form.code_series_id) : null,
           ...(form.password ? { password: form.password } : {}),
         })
-        resetForm()
+        resetPersonForm()
         return { message: 'Employee updated' }
       }
+      if (!form.code_series_id) throw new Error('Pick a code series first')
       const created = await api.createEmployee({
-        employee_id: form.employee_id.trim().toUpperCase(),
+        code_series_id: Number(form.code_series_id),
+        employee_id: form.employee_id.trim().toUpperCase() || undefined,
         name: form.name.trim(),
         email: form.email.trim() || undefined,
-        role: form.role,
         job_title: form.job_title.trim() || undefined,
         password: form.password,
       })
-      resetForm()
+      resetPersonForm()
       return { message: `Created ${created.employee_id} · ${created.name}` }
+    })
+  }
+
+  async function saveSeries(e: FormEvent) {
+    e.preventDefault()
+    await run(async () => {
+      if (editingSeriesId) {
+        await api.updateCodeSeries(editingSeriesId, {
+          prefix: seriesForm.prefix.trim().toUpperCase(),
+          name: seriesForm.name.trim(),
+          access_role: seriesForm.access_role,
+          next_number: Number(seriesForm.next_number) || 1,
+        })
+        setEditingSeriesId(null)
+        setSeriesForm({ prefix: '', name: '', access_role: 'member', next_number: '1' })
+        return { message: 'Code series updated' }
+      }
+      await api.createCodeSeries({
+        prefix: seriesForm.prefix.trim().toUpperCase(),
+        name: seriesForm.name.trim(),
+        access_role: seriesForm.access_role,
+        next_number: Number(seriesForm.next_number) || 1,
+      })
+      setSeriesForm({ prefix: '', name: '', access_role: 'member', next_number: '1' })
+      return { message: 'Code series created' }
     })
   }
 
@@ -162,22 +204,23 @@ export default function Admin() {
     e.preventDefault()
     if (!assign.user_id || !assign.title.trim()) return
     await run(async () => {
-      const res = await api.assignTask({
-        user_id: Number(assign.user_id),
-        title: assign.title.trim(),
-      })
+      const res = await api.assignTask({ user_id: Number(assign.user_id), title: assign.title.trim() })
       setAssign({ user_id: assign.user_id, title: '' })
       return { message: res.message }
     })
   }
 
-  const activeWorkers = useMemo(
-    () => employees.filter((e) => e.active && e.role === 'member'),
-    [employees]
-  )
-
+  const activeWorkers = useMemo(() => employees.filter((e) => e.active && e.role === 'member'), [employees])
   const sortedEmployees = useMemo(
     () => [...(dash?.employees || [])].sort((a, b) => (b.period.completion ?? -1) - (a.period.completion ?? -1)),
+    [dash]
+  )
+  const reasonSlices = useMemo(
+    () =>
+      (dash?.reason_breakdown || []).map((r) => ({
+        label: REASON_LABELS[r.reason_code] || r.reason_code,
+        value: r.count,
+      })),
     [dash]
   )
 
@@ -213,7 +256,7 @@ export default function Admin() {
         {(
           [
             ['overview', 'Overview'],
-            ['employees', 'Employees'],
+            ['employees', 'People & codes'],
             ['operations', 'Today ops'],
             ['bot', 'Bot & times'],
           ] as Array<[Tab, string]>
@@ -236,14 +279,39 @@ export default function Admin() {
           </section>
 
           <section className="panel">
+            <h2>Performance graphs</h2>
+            <p className="muted">How the team is executing across the selected period.</p>
+            <div className="charts-grid">
+              <div>
+                <h3 className="chart-title">Daily completion %</h3>
+                <BarChart
+                  data={dash.daily_trend.map((d) => ({
+                    label: d.date,
+                    value: d.completion,
+                    hint: `${d.done}/${d.planned}`,
+                  }))}
+                />
+              </div>
+              <div className="gauge-row">
+                <Gauge value={dash.kpis.team_completion_today} label="Today work rate" />
+                <Gauge value={dash.kpis.team_completion_period} label="Period work rate" />
+              </div>
+              <div>
+                <h3 className="chart-title">Why work slips</h3>
+                {reasonSlices.length === 0 ? (
+                  <p className="muted">No not-done reasons in this period.</p>
+                ) : (
+                  <DonutChart slices={reasonSlices} />
+                )}
+              </div>
+            </div>
+          </section>
+
+          <section className="panel">
             <h2>Assign work</h2>
-            <p className="muted">Adds a task to the employee’s day alongside tasks they submit themselves on Telegram.</p>
+            <p className="muted">Adds a task to the employee’s day alongside tasks they submit on Telegram.</p>
             <form className="employee-form" onSubmit={assignWork}>
-              <select
-                required
-                value={assign.user_id}
-                onChange={(e) => setAssign({ ...assign, user_id: e.target.value })}
-              >
+              <select required value={assign.user_id} onChange={(e) => setAssign({ ...assign, user_id: e.target.value })}>
                 <option value="">Select employee</option>
                 {activeWorkers.map((e) => (
                   <option key={e.id} value={e.id}>
@@ -272,14 +340,24 @@ export default function Admin() {
                 <button
                   className="secondary small"
                   disabled={busy}
-                  onClick={() => run(async () => { await api.exportCsv('tasks', from, to); return { message: 'Tasks CSV downloaded' } })}
+                  onClick={() =>
+                    run(async () => {
+                      await api.exportCsv('tasks', from, to)
+                      return { message: 'Tasks CSV downloaded' }
+                    })
+                  }
                 >
                   Export tasks
                 </button>
                 <button
                   className="secondary small"
                   disabled={busy}
-                  onClick={() => run(async () => { await api.exportCsv('reasons', from, to); return { message: 'Reasons CSV downloaded' } })}
+                  onClick={() =>
+                    run(async () => {
+                      await api.exportCsv('reasons', from, to)
+                      return { message: 'Reasons CSV downloaded' }
+                    })
+                  }
                 >
                   Export reasons
                 </button>
@@ -303,13 +381,19 @@ export default function Admin() {
                 <tbody>
                   {sortedEmployees.map((row) => (
                     <tr key={row.user.id}>
-                      <td><code>{row.user.employee_id}</code></td>
+                      <td>
+                        <code>{row.user.employee_id}</code>
+                      </td>
                       <td>{row.user.name}</td>
                       <td>
                         <span className={`pill state-${row.today.state}`}>{row.today.state.replace('_', ' ')}</span>
                       </td>
-                      <td>{row.today.done}/{row.today.planned} ({pct(row.today.completion)})</td>
-                      <td><strong>{pct(row.period.completion)}</strong> · {row.period.done}/{row.period.planned}</td>
+                      <td>
+                        {row.today.done}/{row.today.planned} ({pct(row.today.completion)})
+                      </td>
+                      <td>
+                        <strong>{pct(row.period.completion)}</strong> · {row.period.done}/{row.period.planned}
+                      </td>
                       <td>{pct(row.period.plan_submission_rate)}</td>
                       <td>{pct(row.period.close_rate)}</td>
                       <td>{row.period.carry_over_hot || '—'}</td>
@@ -321,51 +405,20 @@ export default function Admin() {
             </div>
           </section>
 
-          <div className="admin-split">
-            <section className="panel">
-              <h2>Daily completion trend</h2>
-              <ul className="trend-list">
-                {dash.daily_trend.map((d) => (
-                  <li key={d.date}>
-                    <span>{d.date}</span>
-                    <div className="trend-bar-wrap">
-                      <div className="trend-bar" style={{ width: `${d.completion ?? 0}%` }} />
-                    </div>
-                    <strong>{pct(d.completion)}</strong>
-                    <span className="muted">{d.done}/{d.planned}</span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-
-            <section className="panel">
-              <h2>Why work slips</h2>
-              {dash.reason_breakdown.length === 0 && <p className="muted">No not-done reasons in this period.</p>}
-              <ul className="simple-list">
-                {dash.reason_breakdown.map((r) => (
-                  <li key={r.reason_code}>
-                    <strong>{REASON_LABELS[r.reason_code] || r.reason_code}</strong>
-                    <span className="muted"> · {r.count}</span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          </div>
-
           <section className="panel attention">
             <h2>Needs attention</h2>
-            <p><strong>Missing plans:</strong> {dash.needs_attention.missing_plans.map((u) => `${u.name} (${u.employee_id})`).join(', ') || 'None'}</p>
-            <p><strong>Not closed:</strong> {dash.needs_attention.not_closed.map((u) => `${u.name} (${u.employee_id})`).join(', ') || 'None'}</p>
-            <p><strong>Not on Telegram:</strong> {dash.needs_attention.not_linked.map((u) => `${u.name} (${u.employee_id})`).join(', ') || 'None'}</p>
-            {dash.needs_attention.roadblocks.length > 0 && (
-              <ul className="simple-list">
-                {dash.needs_attention.roadblocks.map((b) => (
-                  <li key={b.task_id}>
-                    {b.name} ({b.employee_id}): {b.title} — {b.blocker_note || 'no note'}
-                  </li>
-                ))}
-              </ul>
-            )}
+            <p>
+              <strong>Missing plans:</strong>{' '}
+              {dash.needs_attention.missing_plans.map((u) => `${u.name} (${u.employee_id})`).join(', ') || 'None'}
+            </p>
+            <p>
+              <strong>Not closed:</strong>{' '}
+              {dash.needs_attention.not_closed.map((u) => `${u.name} (${u.employee_id})`).join(', ') || 'None'}
+            </p>
+            <p>
+              <strong>Not on Telegram:</strong>{' '}
+              {dash.needs_attention.not_linked.map((u) => `${u.name} (${u.employee_id})`).join(', ') || 'None'}
+            </p>
           </section>
         </>
       )}
@@ -373,32 +426,164 @@ export default function Admin() {
       {tab === 'employees' && (
         <>
           <section className="panel">
-            <h2>{editingId ? 'Edit employee / code' : 'Create employee code'}</h2>
+            <h2>{editingSeriesId ? 'Edit code series' : 'Create code series'}</h2>
             <p className="muted">
-              Use any code you want. <b>Job title</b> is free text (Sales, Engineer, Intern…).
-              Access = Admin (web) or Employee (Telegram only).
+              Structure first: create prefixes like <code>EMP</code>, <code>SALES</code>, <code>MGR</code>. Then assign people under a series — codes auto-generate (<code>EMP001</code>…).
             </p>
-            <form className="employee-form" onSubmit={createEmployee}>
+            <form className="employee-form" onSubmit={saveSeries}>
               <input
                 required
-                placeholder="Code e.g. EMP005 / SALES01"
+                placeholder="Prefix e.g. EMP"
+                value={seriesForm.prefix}
+                onChange={(e) => setSeriesForm({ ...seriesForm, prefix: e.target.value.toUpperCase() })}
+              />
+              <input
+                required
+                placeholder="Series name e.g. Employees"
+                value={seriesForm.name}
+                onChange={(e) => setSeriesForm({ ...seriesForm, name: e.target.value })}
+              />
+              <select
+                value={seriesForm.access_role}
+                onChange={(e) => setSeriesForm({ ...seriesForm, access_role: e.target.value as 'member' | 'manager' })}
+              >
+                <option value="member">Employee (Telegram)</option>
+                <option value="manager">Admin (web)</option>
+              </select>
+              <input
+                type="number"
+                min={1}
+                placeholder="Next number"
+                value={seriesForm.next_number}
+                onChange={(e) => setSeriesForm({ ...seriesForm, next_number: e.target.value })}
+              />
+              <button type="submit" disabled={busy}>
+                {editingSeriesId ? 'Save series' : 'Create series'}
+              </button>
+              {editingSeriesId && (
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => {
+                    setEditingSeriesId(null)
+                    setSeriesForm({ prefix: '', name: '', access_role: 'member', next_number: '1' })
+                  }}
+                >
+                  Cancel
+                </button>
+              )}
+            </form>
+
+            <div className="table-wrap" style={{ marginTop: '1rem' }}>
+              <table className="team-table">
+                <thead>
+                  <tr>
+                    <th>Prefix</th>
+                    <th>Name</th>
+                    <th>Access</th>
+                    <th>Next code</th>
+                    <th>People</th>
+                    <th>Active</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {series.map((s) => (
+                    <tr key={s.id}>
+                      <td>
+                        <code>{s.prefix}</code>
+                      </td>
+                      <td>{s.name}</td>
+                      <td>{s.access_role === 'manager' ? 'Admin' : 'Employee'}</td>
+                      <td>
+                        <code>{s.next_code}</code>
+                      </td>
+                      <td>{s.users_count}</td>
+                      <td>{s.active ? 'Yes' : 'No'}</td>
+                      <td>
+                        <div className="row gap wrap">
+                          <button
+                            type="button"
+                            className="secondary small"
+                            disabled={busy}
+                            onClick={() => {
+                              setEditingSeriesId(s.id)
+                              setSeriesForm({
+                                prefix: s.prefix,
+                                name: s.name,
+                                access_role: s.access_role,
+                                next_number: String(s.next_number),
+                              })
+                            }}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="secondary small"
+                            disabled={busy}
+                            onClick={() =>
+                              run(async () => {
+                                await api.updateCodeSeries(s.id, { active: !s.active })
+                                return { message: `${s.prefix} ${s.active ? 'disabled' : 'enabled'}` }
+                              })
+                            }
+                          >
+                            {s.active ? 'Disable' : 'Enable'}
+                          </button>
+                          <button
+                            type="button"
+                            className="secondary small"
+                            disabled={busy || s.users_count > 0}
+                            onClick={() => {
+                              if (!window.confirm(`Delete series ${s.prefix}?`)) return
+                              run(async () => {
+                                await api.deleteCodeSeries(s.id)
+                                return { message: `${s.prefix} deleted` }
+                              })
+                            }}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section className="panel">
+            <h2>{editingId ? 'Edit person / code' : 'Assign person to a series'}</h2>
+            <p className="muted">Pick a series — the next code is filled automatically. You can still edit the code.</p>
+            <form className="employee-form" onSubmit={savePerson}>
+              <select
+                required={!editingId}
+                value={form.code_series_id}
+                onChange={(e) => setForm({ ...form, code_series_id: e.target.value })}
+              >
+                <option value="">Select code series</option>
+                {series
+                  .filter((s) => s.active || String(s.id) === form.code_series_id)
+                  .map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.prefix} — {s.name} (next {s.next_code})
+                    </option>
+                  ))}
+              </select>
+              <input
+                required
+                placeholder="Code"
                 value={form.employee_id}
                 onChange={(e) => setForm({ ...form, employee_id: e.target.value.toUpperCase() })}
               />
               <input required placeholder="Full name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
               <input
-                placeholder="Job title (Sales, Dev, Ops…)"
+                placeholder="Job title (Sales, Dev…)"
                 value={form.job_title}
                 onChange={(e) => setForm({ ...form, job_title: e.target.value })}
               />
-              <select
-                value={form.role}
-                onChange={(e) => suggestCode(e.target.value as 'member' | 'manager')}
-                aria-label="Access level"
-              >
-                <option value="member">Employee (Telegram)</option>
-                <option value="manager">Admin (web)</option>
-              </select>
               <input placeholder="Email (optional)" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
               <input
                 required={!editingId}
@@ -408,10 +593,12 @@ export default function Admin() {
                 onChange={(e) => setForm({ ...form, password: e.target.value })}
                 minLength={editingId ? undefined : 6}
               />
-              <button type="submit" disabled={busy}>{editingId ? 'Save changes' : 'Create'}</button>
+              <button type="submit" disabled={busy}>
+                {editingId ? 'Save person' : 'Create person'}
+              </button>
               {editingId && (
-                <button type="button" className="secondary" disabled={busy} onClick={resetForm}>
-                  Cancel edit
+                <button type="button" className="secondary" disabled={busy} onClick={resetPersonForm}>
+                  Cancel
                 </button>
               )}
             </form>
@@ -424,6 +611,7 @@ export default function Admin() {
                 <thead>
                   <tr>
                     <th>Code</th>
+                    <th>Series</th>
                     <th>Name</th>
                     <th>Title</th>
                     <th>Access</th>
@@ -435,7 +623,10 @@ export default function Admin() {
                 <tbody>
                   {employees.map((emp) => (
                     <tr key={emp.id}>
-                      <td><code>{emp.employee_id}</code></td>
+                      <td>
+                        <code>{emp.employee_id}</code>
+                      </td>
+                      <td>{emp.code_series?.prefix || '—'}</td>
                       <td>{emp.name}</td>
                       <td>{emp.job_title || '—'}</td>
                       <td>{emp.role === 'manager' ? 'Admin' : 'Employee'}</td>
@@ -446,36 +637,6 @@ export default function Admin() {
                           <button type="button" className="secondary small" disabled={busy} onClick={() => startEdit(emp)}>
                             Edit
                           </button>
-                          <button
-                            type="button"
-                            className="secondary small"
-                            disabled={busy}
-                            onClick={() => {
-                              const pw = window.prompt(`New password for ${emp.employee_id}`)
-                              if (!pw) return
-                              run(async () => {
-                                await api.updateEmployee(emp.id, { password: pw })
-                                return { message: `Password updated for ${emp.employee_id}` }
-                              })
-                            }}
-                          >
-                            Reset PW
-                          </button>
-                          {emp.telegram_linked && (
-                            <button
-                              type="button"
-                              className="secondary small"
-                              disabled={busy}
-                              onClick={() =>
-                                run(async () => {
-                                  await api.updateEmployee(emp.id, { clear_telegram: true })
-                                  return { message: 'Telegram unlinked' }
-                                })
-                              }
-                            >
-                              Unlink TG
-                            </button>
-                          )}
                           {emp.active && emp.id !== user?.id && (
                             <button
                               type="button"
@@ -512,10 +673,10 @@ export default function Admin() {
                               className="secondary small"
                               disabled={busy}
                               onClick={() => {
-                                if (!window.confirm(`Permanently delete ${emp.employee_id} (${emp.name})?`)) return
+                                if (!window.confirm(`Permanently delete ${emp.employee_id}?`)) return
                                 run(async () => {
                                   await api.deleteEmployee(emp.id)
-                                  if (editingId === emp.id) resetForm()
+                                  if (editingId === emp.id) resetPersonForm()
                                   return { message: `${emp.employee_id} deleted` }
                                 })
                               }}
@@ -552,11 +713,17 @@ export default function Admin() {
               <tbody>
                 {dash.employees.map((row) => (
                   <tr key={row.user.id}>
-                    <td><code>{row.user.employee_id}</code></td>
+                    <td>
+                      <code>{row.user.employee_id}</code>
+                    </td>
                     <td>{row.user.name}</td>
-                    <td><span className={`pill state-${row.today.state}`}>{row.today.state.replace('_', ' ')}</span></td>
-                    <td>{row.today.done}/{row.today.planned}</td>
-                    <td>{row.today.blockers || '—'}</td>
+                    <td>
+                      <span className={`pill state-${row.today.state}`}>{row.today.state.replace('_', ' ')}</span>
+                    </td>
+                    <td>
+                      {row.today.done}/{row.today.planned}
+                    </td>
+                    <td>{row.today.blockers}</td>
                     <td>
                       {row.today.day_id && row.today.state !== 'closed' ? (
                         <div className="row gap wrap">
@@ -595,33 +762,46 @@ export default function Admin() {
         <>
           <section className="panel">
             <h2>Telegram prompts</h2>
-            <p className="muted">Members link with <code>/start EMP001</code> (their employee ID).</p>
+            <p className="muted">Employees tap Start on the bot, then enter their employee code.</p>
             <div className="row gap wrap">
-              <button disabled={busy} onClick={() => run(() => api.sendMorning())}>Send morning now</button>
-              <button className="secondary" disabled={busy} onClick={() => run(() => api.sendEvening())}>Send evening now</button>
+              <button disabled={busy} onClick={() => run(() => api.sendMorning())}>
+                Send morning now
+              </button>
+              <button className="secondary" disabled={busy} onClick={() => run(() => api.sendEvening())}>
+                Send evening now
+              </button>
             </div>
           </section>
           <section className="panel">
-            <h2>Automatic times (Africa/Addis_Ababa)</h2>
+            <h2>Automatic windows (Africa/Addis_Ababa)</h2>
+            <p className="muted">Prompts fire once per day when the current time falls inside each window.</p>
             <div className="row gap wrap">
               <label className="inline">
-                Morning
-                <input type="time" value={morning} onChange={(e) => setMorning(e.target.value)} />
+                Morning from
+                <input type="time" value={morning.from} onChange={(e) => setMorning({ ...morning, from: e.target.value })} />
               </label>
               <label className="inline">
-                Evening
-                <input type="time" value={evening} onChange={(e) => setEvening(e.target.value)} />
+                Morning to
+                <input type="time" value={morning.to} onChange={(e) => setMorning({ ...morning, to: e.target.value })} />
+              </label>
+              <label className="inline">
+                Evening from
+                <input type="time" value={evening.from} onChange={(e) => setEvening({ ...evening, from: e.target.value })} />
+              </label>
+              <label className="inline">
+                Evening to
+                <input type="time" value={evening.to} onChange={(e) => setEvening({ ...evening, to: e.target.value })} />
               </label>
               <button
                 disabled={busy}
                 onClick={() =>
                   run(async () => {
                     await api.updateSettings({ reminder_times: { morning, evening } })
-                    return { message: 'Times saved' }
+                    return { message: 'Time windows saved' }
                   })
                 }
               >
-                Save times
+                Save windows
               </button>
             </div>
           </section>

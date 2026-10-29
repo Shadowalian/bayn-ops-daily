@@ -7,6 +7,8 @@ const API_BASE = (
 export type User = {
   id: number
   employee_id: string
+  code_series_id?: number | null
+  code_series?: { id: number; prefix: string; name: string } | null
   name: string
   email?: string
   role: 'member' | 'manager'
@@ -15,6 +17,20 @@ export type User = {
   telegram_linked?: boolean
   active?: boolean
 }
+
+export type CodeSeries = {
+  id: number
+  prefix: string
+  name: string
+  access_role: 'member' | 'manager'
+  next_number: number
+  pad_length: number
+  active: boolean
+  next_code: string
+  users_count: number
+}
+
+export type TimeWindow = { from: string; to: string }
 
 export type Task = {
   id: number
@@ -243,16 +259,20 @@ export const api = {
     return request<Dashboard>(`/api/v1/admin/dashboard${suffix}`)
   },
   listEmployees: () => request<{ employees: User[] }>('/api/v1/admin/employees'),
-  nextEmployeeCode: (role: 'member' | 'manager', prefix?: string) => {
-    const q = new URLSearchParams({ role })
-    if (prefix) q.set('prefix', prefix)
-    return request<{ employee_id: string; prefix: string }>(`/api/v1/admin/employees/next-code?${q}`)
+  nextEmployeeCode: (opts: { role?: 'member' | 'manager'; prefix?: string; series_id?: number }) => {
+    const q = new URLSearchParams()
+    if (opts.series_id) q.set('series_id', String(opts.series_id))
+    if (opts.role) q.set('role', opts.role)
+    if (opts.prefix) q.set('prefix', opts.prefix)
+    return request<{ employee_id: string; prefix: string; series_id?: number; access_role?: string }>(
+      `/api/v1/admin/employees/next-code?${q}`
+    )
   },
   createEmployee: (payload: {
-    employee_id: string
+    code_series_id: number
+    employee_id?: string
     name: string
     email?: string
-    role: 'member' | 'manager'
     job_title?: string
     password: string
     active?: boolean
@@ -265,6 +285,7 @@ export const api = {
       name: string
       email: string | null
       role: 'member' | 'manager'
+      code_series_id: number | null
       job_title: string | null
       password: string
       active: boolean
@@ -277,6 +298,28 @@ export const api = {
     request<User>(`/api/v1/admin/employees/${id}`, { method: 'DELETE' }),
   deleteEmployee: (id: number) =>
     request<{ ok: boolean; deleted: string }>(`/api/v1/admin/employees/${id}?hard=1`, { method: 'DELETE' }),
+  listCodeSeries: () => request<{ series: CodeSeries[] }>('/api/v1/admin/code-series'),
+  createCodeSeries: (payload: {
+    prefix: string
+    name: string
+    access_role: 'member' | 'manager'
+    next_number?: number
+    pad_length?: number
+    active?: boolean
+  }) => request<CodeSeries>('/api/v1/admin/code-series', { method: 'POST', body: JSON.stringify(payload) }),
+  updateCodeSeries: (
+    id: number,
+    payload: Partial<{
+      prefix: string
+      name: string
+      access_role: 'member' | 'manager'
+      next_number: number
+      pad_length: number
+      active: boolean
+    }>
+  ) => request<CodeSeries>(`/api/v1/admin/code-series/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  deleteCodeSeries: (id: number) =>
+    request<{ ok: boolean; deleted: string }>(`/api/v1/admin/code-series/${id}`, { method: 'DELETE' }),
   assignTask: (payload: { user_id: number; title: string; date?: string }) =>
     request<{ message: string; task: { id: number; title: string; employee_id: string; name: string } }>(
       '/api/v1/admin/assign-task',
@@ -306,11 +349,12 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ note }),
     }),
-  updateSettings: (payload: { reminder_times?: { morning?: string; evening?: string } }) =>
-    request('/api/v1/settings', { method: 'PUT', body: JSON.stringify(payload) }),
+  updateSettings: (payload: {
+    reminder_times?: { morning?: TimeWindow; evening?: TimeWindow }
+  }) => request('/api/v1/settings', { method: 'PUT', body: JSON.stringify(payload) }),
   getSettings: () =>
     request<{
-      reminder_times: { morning: string; evening: string }
+      reminder_times: { morning: TimeWindow; evening: TimeWindow }
       bot_token_set: boolean
     }>('/api/v1/settings'),
   exportCsv: (table: 'tasks' | 'attendance' | 'reasons', from: string, to: string) => {

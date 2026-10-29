@@ -16,6 +16,7 @@ class User extends Authenticatable
 
     protected $fillable = [
         'employee_id',
+        'code_series_id',
         'name',
         'email',
         'password',
@@ -42,6 +43,11 @@ class User extends Authenticatable
     public function isManager(): bool
     {
         return $this->role === 'manager';
+    }
+
+    public function codeSeries(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(CodeSeries::class);
     }
 
     public function days(): HasMany

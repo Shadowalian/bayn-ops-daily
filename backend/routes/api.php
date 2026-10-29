@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\AdminAssignController;
 use App\Http\Controllers\Api\AdminBotController;
+use App\Http\Controllers\Api\AdminCodeSeriesController;
 use App\Http\Controllers\Api\AdminDashboardController;
 use App\Http\Controllers\Api\AdminEmployeeController;
 use App\Http\Controllers\Api\AuthController;
@@ -48,6 +49,12 @@ Route::prefix('v1')->group(function () {
             Route::patch('/admin/employees/{user}', [AdminEmployeeController::class, 'update']);
             Route::delete('/admin/employees/{user}', [AdminEmployeeController::class, 'destroy']);
             Route::post('/admin/assign-task', [AdminAssignController::class, 'store']);
+
+            Route::get('/admin/code-series', [AdminCodeSeriesController::class, 'index']);
+            Route::post('/admin/code-series', [AdminCodeSeriesController::class, 'store']);
+            Route::patch('/admin/code-series/{code_series}', [AdminCodeSeriesController::class, 'update']);
+            Route::delete('/admin/code-series/{code_series}', [AdminCodeSeriesController::class, 'destroy']);
+            Route::get('/admin/code-series/{code_series}/preview', [AdminCodeSeriesController::class, 'preview']);
 
             Route::get('/admin/bot/status', [AdminBotController::class, 'status']);
             Route::post('/admin/bot/morning', [AdminBotController::class, 'sendMorning']);

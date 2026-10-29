@@ -1,9 +1,7 @@
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider, useAuth } from './AuthContext'
 import Admin from './pages/Admin'
-import History from './pages/History'
 import Login from './pages/Login'
-import MyDay from './pages/MyDay'
 import TeamToday from './pages/TeamToday'
 
 function Shell() {
@@ -12,20 +10,33 @@ function Shell() {
   if (loading) return <div className="shell">Loading…</div>
   if (!user) return <Login />
 
+  if (user.role !== 'manager') {
+    return (
+      <div className="shell login-shell">
+        <div className="panel login-panel">
+          <p className="eyebrow">BAYN OPS</p>
+          <h1>Admin web only</h1>
+          <p className="muted">
+            Employees use the Telegram bot. Open the bot, tap <strong>Start</strong>, and enter your employee code.
+          </p>
+          <button type="button" onClick={() => logout()}>
+            Log out
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="app">
       <nav className="topnav">
         <div className="brand">
           <span className="brand-mark">BAYN</span>
-          <span className="brand-sub">Ops Check</span>
+          <span className="brand-sub">Ops Admin</span>
         </div>
         <div className="nav-links">
-          <NavLink to="/" end>
-            My Day
-          </NavLink>
+          <NavLink to="/admin">Admin</NavLink>
           <NavLink to="/team">Team</NavLink>
-          <NavLink to="/history">History</NavLink>
-          {user.role === 'manager' && <NavLink to="/admin">Admin</NavLink>}
         </div>
         <div className="nav-user">
           <span>
@@ -38,11 +49,9 @@ function Shell() {
       </nav>
       <main>
         <Routes>
-          <Route path="/" element={<MyDay />} />
-          <Route path="/team" element={<TeamToday />} />
-          <Route path="/history" element={<History />} />
           <Route path="/admin" element={<Admin />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="/team" element={<TeamToday />} />
+          <Route path="*" element={<Navigate to="/admin" replace />} />
         </Routes>
       </main>
     </div>

@@ -15,25 +15,32 @@ class DatabaseSeeder extends Seeder
             Setting::query()->updateOrCreate(['key' => $key], ['value' => $value]);
         }
 
-        $users = [
-            ['employee_id' => 'MGR001', 'name' => 'Ops Manager', 'email' => 'manager@bayn.local', 'role' => 'manager'],
-            ['employee_id' => 'EMP001', 'name' => 'Hana', 'email' => 'hana@bayn.local', 'role' => 'member'],
-            ['employee_id' => 'EMP002', 'name' => 'Abebe', 'email' => 'abebe@bayn.local', 'role' => 'member'],
-            ['employee_id' => 'EMP003', 'name' => 'Sara', 'email' => 'sara@bayn.local', 'role' => 'member'],
-            ['employee_id' => 'EMP004', 'name' => 'Yonas', 'email' => 'yonas@bayn.local', 'role' => 'member'],
-        ];
+        // Web app is admin-only. Employees are created by admin and use Telegram only.
+        User::query()->updateOrCreate(
+            ['employee_id' => 'MGR001'],
+            [
+                'name' => 'Ops Manager',
+                'email' => 'manager@bayn.local',
+                'role' => 'manager',
+                'password' => Hash::make('password'),
+                'active' => true,
+            ]
+        );
 
-        foreach ($users as $row) {
-            User::query()->updateOrCreate(
-                ['email' => $row['email']],
-                [
-                    'employee_id' => $row['employee_id'],
-                    'name' => $row['name'],
-                    'role' => $row['role'],
-                    'password' => Hash::make('password'),
-                    'active' => true,
-                ]
-            );
-        }
+        User::query()
+            ->where('role', 'member')
+            ->where(function ($q) {
+                $q->whereIn('employee_id', ['EMP001', 'EMP002', 'EMP003', 'EMP004'])
+                    ->orWhereIn('email', [
+                        'hana@bayn.local',
+                        'abebe@bayn.local',
+                        'sara@bayn.local',
+                        'yonas@bayn.local',
+                    ]);
+            })
+            ->each(function (User $user) {
+                $user->tokens()->delete();
+                $user->update(['active' => false, 'telegram_chat_id' => null]);
+            });
     }
 }

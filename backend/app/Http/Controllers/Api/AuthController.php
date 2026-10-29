@@ -26,6 +26,12 @@ class AuthController extends Controller
             ]);
         }
 
+        if (! $user->isManager()) {
+            throw ValidationException::withMessages([
+                'employee_id' => 'Web login is for admins only. Employees use the BAYN OPS Telegram bot.',
+            ]);
+        }
+
         $user->tokens()->delete();
         $token = $user->createToken('web', ['*'], now()->addDays(30))->plainTextToken;
 

@@ -306,8 +306,8 @@ export default function Admin() {
           <section className="panel">
             <h2>Create employee code &amp; assign person</h2>
             <p className="muted">
-              Only admins create codes. Use <code>EMP###</code> for members and <code>MGR###</code> for managers,
-              assign the person, then they open Telegram → tap <b>Start</b> → enter that code.
+              Only admins use this web app. Create <code>EMP###</code> / <code>MGR###</code> codes here, assign people,
+              then they use Telegram only: tap <b>Start</b> → enter their code → submit daily tasks.
             </p>
             <form className="employee-form" onSubmit={createEmployee}>
               <select

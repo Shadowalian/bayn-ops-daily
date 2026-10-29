@@ -25,6 +25,9 @@ if [ "${SEED_ON_BOOT:-0}" = "1" ]; then
   php artisan db:seed --force
 fi
 
+# Drop old demo members (Hana/Abebe/Sara/Yonas) if present
+php artisan ops:purge-demo-members --hard || true
+
 php artisan config:cache
 php artisan route:cache || true
 php artisan event:cache || true

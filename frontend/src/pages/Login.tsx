@@ -9,7 +9,7 @@ export default function Login() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
-  if (user) return <Navigate to={user.role === 'manager' ? '/admin' : '/'} replace />
+  if (user?.role === 'manager') return <Navigate to="/admin" replace />
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
@@ -28,18 +28,18 @@ export default function Login() {
     <div className="shell login-shell">
       <form className="panel login-panel" onSubmit={onSubmit}>
         <p className="eyebrow">BAYN TECHNOLOGIES</p>
-        <h1>Ops Daily Check</h1>
-        <p className="muted">Sign in with your employee ID. Daily plans run on Telegram.</p>
+        <h1>Ops Admin</h1>
+        <p className="muted">Admin web console only. Employees plan and close their day on Telegram.</p>
         {error && <p className="error">{error}</p>}
         <label>
-          Employee ID
+          Admin employee ID
           <input
             value={employeeId}
             onChange={(e) => setEmployeeId(e.target.value.toUpperCase())}
             type="text"
             required
             autoComplete="username"
-            placeholder="EMP001"
+            placeholder="MGR001"
             autoFocus
           />
         </label>
@@ -56,7 +56,7 @@ export default function Login() {
         <button type="submit" disabled={busy}>
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
-        <p className="hint">Ask your admin for your employee ID. Telegram: /start EMP001</p>
+        <p className="hint">Employees: open the Telegram bot → Start → enter your employee code.</p>
       </form>
     </div>
   )

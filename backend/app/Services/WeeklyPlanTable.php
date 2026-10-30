@@ -10,10 +10,12 @@ use Illuminate\Support\Collection;
 
 class WeeklyPlanTable
 {
+    private const DAY_LABELS = ['1' => 'Mon', '2' => 'Tue', '3' => 'Wed', '4' => 'Thu', '5' => 'Fri'];
+
     /**
      * @param  Collection<int, WeeklyGoal>  $goals
-     * @param  array<int, array<string, string>>  $marksByGoal  goalId => ['Mon'=>'✓', ...]
-     * @param  array<int, string>  $todayByGoal  goalId => today cell
+     * @param  array<int, array<string, string>>  $marksByGoal  goalId => ['1'=>'✓', ...]
+     * @param  array<int, string>  $todayByGoal  goalId => today cell (· ✓ ✗ – ~)
      */
     public function render(
         WeeklyPlan $plan,
@@ -24,41 +26,48 @@ class WeeklyPlanTable
     ): string {
         $weekStart = Carbon::parse($plan->week_start)->timezone(AppTime::timezone());
         $weekEnd = $weekStart->copy()->addDays(6);
-        $range = $weekStart->format('j M').' – '.$weekEnd->format('j M');
-        $status = ucfirst($plan->status);
+        $range = $weekStart->format('j M').' – '.$weekEnd->format('j M Y');
 
-        $header = '<b>Weekly checkpoints</b> · '.$range.' · <i>'.e($status).'</i>';
+        $statusEmoji = match ($plan->status) {
+            WeeklyPlan::STATUS_APPROVED => '✅',
+            WeeklyPlan::STATUS_PENDING => '⏳',
+            WeeklyPlan::STATUS_REJECTED => '↩️',
+            default => '📋',
+        };
+
+        $lines = [
+            '🗓 <b>Your week</b>',
+            $range.' · '.$statusEmoji.' <i>'.e(ucfirst($plan->status)).'</i>',
+        ];
+
         if ($caption) {
-            $header .= "\n".$caption;
+            $lines[] = $caption;
         }
 
-        $rows = '';
+        $lines[] = '';
+
+        if ($goals->isEmpty()) {
+            $lines[] = '<i>No checkpoints on this week yet.</i>';
+
+            return implode("\n", $lines);
+        }
+
         $i = 0;
         foreach ($goals as $goal) {
             $i++;
-            $title = $this->pad($this->truncate($goal->title, 26), 28);
-            $src = $this->pad($goal->srcLabel(), 3);
-            $week = $this->pad($this->weekStrip($marksByGoal[$goal->id] ?? []), 11);
-            $today = $this->pad($todayByGoal[$goal->id] ?? '·', 5);
-            $num = $this->pad((string) $i, 2);
-            $rows .= '│ '.$num.' │ '.$title.' │ '.$src.' │ '.$week.' │ '.$today." │\n";
+            $title = e(trim(preg_replace('/\s+/', ' ', $goal->title) ?: ''));
+            $lines[] = '<b>'.$i.'.</b> '.$title;
+            $lines[] = '   '.$this->sourceLine($goal).' · '.$this->weekProgressLine($marksByGoal[$goal->id] ?? []);
+            $lines[] = '   Today: '.$this->todayLabel($todayByGoal[$goal->id] ?? '·');
+            $lines[] = '';
         }
 
-        if ($rows === '') {
-            $rows = '│  — │ ' . $this->pad('(no checkpoints yet)', 28) . " │     │             │       │\n";
+        // drop trailing blank
+        while ($lines !== [] && end($lines) === '') {
+            array_pop($lines);
         }
 
-        $pre = '<pre>'
-            ."┌────┬──────────────────────────────┬─────┬─────────────┬───────┐\n"
-            ."│  # │ Checkpoint                   │ Src │ M T W T F   │ Today │\n"
-            ."├────┼──────────────────────────────┼─────┼─────────────┼───────┤\n"
-            .$rows
-            .'└────┴──────────────────────────────┴─────┴─────────────┴───────┘'
-            .'</pre>';
-
-        // Escape only after building fixed-width cells would break alignment;
-        // escape special HTML in the raw title already truncated into cells via htmlspecialchars in truncate.
-        return $header."\n\n".$pre;
+        return implode("\n", $lines);
     }
 
     /** @param  Collection<int, WeeklyGoal>  $goals */
@@ -75,8 +84,6 @@ class WeeklyPlanTable
     }
 
     /**
-     * Build Mon–Fri marks for goals in a week from tasks.
-     *
      * @param  Collection<int, WeeklyGoal>  $goals
      * @return array<int, array<string, string>>
      */
@@ -104,7 +111,7 @@ class WeeklyPlanTable
 
         foreach ($tasks as $task) {
             $date = Carbon::parse($task->day->date)->timezone(AppTime::timezone());
-            $dow = (string) $date->dayOfWeekIso; // 1=Mon … 5=Fri
+            $dow = (string) $date->dayOfWeekIso;
             if (! isset($out[$task->weekly_goal_id][$dow])) {
                 continue;
             }
@@ -121,7 +128,6 @@ class WeeklyPlanTable
             };
         }
 
-        // holidays without tasks
         for ($d = 1; $d <= 5; $d++) {
             $day = $start->copy()->addDays($d - 1);
             if (! AppTime::isWorkingDay($day)) {
@@ -136,34 +142,47 @@ class WeeklyPlanTable
         return $out;
     }
 
+    private function sourceLine(WeeklyGoal $goal): string
+    {
+        if ($goal->status === WeeklyGoal::STATUS_REMOVE_REQUESTED) {
+            return '✂️ <i>Removal requested</i>';
+        }
+
+        return $goal->source === 'admin'
+            ? '📌 Admin'
+            : '👤 Yours';
+    }
+
     /** @param  array<string, string>  $marks */
-    private function weekStrip(array $marks): string
+    private function weekProgressLine(array $marks): string
     {
         $parts = [];
-        foreach (['1', '2', '3', '4', '5'] as $d) {
-            $parts[] = $marks[$d] ?? '·';
+        foreach (self::DAY_LABELS as $key => $label) {
+            $parts[] = $label.' '.$this->markEmoji($marks[$key] ?? '·');
         }
 
-        return implode(' ', $parts);
+        return implode('  ', $parts);
     }
 
-    private function truncate(string $title, int $width): string
+    private function markEmoji(string $mark): string
     {
-        $clean = preg_replace('/\s+/', ' ', trim($title)) ?: '';
-        if (mb_strlen($clean) > $width) {
-            $clean = mb_substr($clean, 0, max(1, $width - 1)).'…';
-        }
-
-        return htmlspecialchars($clean, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        return match ($mark) {
+            '✓' => '✅',
+            '✗' => '❌',
+            '~' => '🔸',
+            '–' => '—',
+            default => '○',
+        };
     }
 
-    private function pad(string $value, int $width): string
+    private function todayLabel(string $mark): string
     {
-        $len = mb_strlen(html_entity_decode($value, ENT_QUOTES, 'UTF-8'));
-        if ($len >= $width) {
-            return $value;
-        }
-
-        return $value.str_repeat(' ', $width - $len);
+        return match ($mark) {
+            '✓' => '✅ done',
+            '✗' => '❌ not done',
+            '~' => '🔸 partial',
+            '–' => 'not on today’s list',
+            default => '○ not started',
+        };
     }
 }

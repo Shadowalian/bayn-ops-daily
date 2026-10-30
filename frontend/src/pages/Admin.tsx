@@ -1,10 +1,26 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Navigate } from 'react-router-dom'
 import { BarChart, DonutChart, Gauge } from '../components/Charts'
-import { api, REASON_LABELS, type CodeSeries, type Dashboard, type TimeWindow, type User } from '../api'
+import {
+  api,
+  REASON_LABELS,
+  type CodeSeries,
+  type Dashboard,
+  type TimeWindow,
+  type User,
+  type WeeklyPlan,
+} from '../api'
 import { useAuth } from '../AuthContext'
 
-type Tab = 'overview' | 'employees' | 'operations' | 'bot'
+type Tab = 'overview' | 'employees' | 'weekly' | 'operations' | 'bot'
+
+function mondayOf(d = new Date()) {
+  const x = new Date(d)
+  const day = x.getDay()
+  const diff = day === 0 ? -6 : 1 - day
+  x.setDate(x.getDate() + diff)
+  return x.toISOString().slice(0, 10)
+}
 
 function pct(n: number | null | undefined) {
   return n == null ? '—' : `${n}%`
@@ -40,7 +56,7 @@ export default function Admin() {
     job_title: '',
   })
   const [editingId, setEditingId] = useState<number | null>(null)
-  const [assign, setAssign] = useState({ user_id: '', title: '' })
+  const [assign, setAssign] = useState({ user_id: '', title: '', scope: 'week' as 'week' | 'today' })
   const [seriesForm, setSeriesForm] = useState({
     prefix: '',
     name: '',
@@ -48,6 +64,10 @@ export default function Admin() {
     next_number: '1',
   })
   const [editingSeriesId, setEditingSeriesId] = useState<number | null>(null)
+  const [weekStart, setWeekStart] = useState(mondayOf())
+  const [weeklyPlans, setWeeklyPlans] = useState<WeeklyPlan[]>([])
+  const [weeklyEnabled, setWeeklyEnabled] = useState(true)
+  const [rejectReasons, setRejectReasons] = useState<Record<string, string>>({})
 
   function resetSeriesForm() {
     setEditingSeriesId(null)
@@ -80,9 +100,20 @@ export default function Admin() {
     setSeries(res.series)
   }, [])
 
+  const loadWeekly = useCallback(async () => {
+    const res = await api.listWeeklyPlans(weekStart)
+    setWeeklyPlans(res.plans)
+    setWeekStart(res.week_start)
+  }, [weekStart])
+
   const load = useCallback(async () => {
     await Promise.all([loadDashboard(), loadEmployees(), loadSeries()])
-  }, [loadDashboard, loadEmployees, loadSeries])
+    try {
+      await loadWeekly()
+    } catch {
+      /* weekly API may still be migrating */
+    }
+  }, [loadDashboard, loadEmployees, loadSeries, loadWeekly])
 
   useEffect(() => {
     if (user?.role !== 'manager') return
@@ -91,12 +122,18 @@ export default function Admin() {
       .then((settings) => {
         setMorning(settings.reminder_times?.morning || emptyWindow('08:30', '09:30'))
         setEvening(settings.reminder_times?.evening || emptyWindow('17:00', '18:00'))
+        setWeeklyEnabled(settings.weekly_plans_enabled !== false)
       })
       .catch(() => {})
     load()
     const id = setInterval(loadDashboard, 120000)
     return () => clearInterval(id)
   }, [user, load, loadDashboard])
+
+  useEffect(() => {
+    if (user?.role !== 'manager' || tab !== 'weekly') return
+    loadWeekly().catch((err) => setError(err instanceof Error ? err.message : 'Failed to load weekly plans'))
+  }, [user, tab, weekStart, loadWeekly])
 
   useEffect(() => {
     if (!series.length || form.code_series_id || editingId) return
@@ -205,10 +242,19 @@ export default function Admin() {
     e.preventDefault()
     if (!assign.user_id || !assign.title.trim()) return
     await run(async () => {
-      const res = await api.assignTask({ user_id: Number(assign.user_id), title: assign.title.trim() })
-      setAssign({ user_id: assign.user_id, title: '' })
+      const res = await api.assignTask({
+        user_id: Number(assign.user_id),
+        title: assign.title.trim(),
+        scope: assign.scope,
+      })
+      setAssign({ user_id: assign.user_id, title: '', scope: assign.scope })
+      await loadWeekly()
       return { message: res.message }
     })
+  }
+
+  function reasonFor(key: string) {
+    return (rejectReasons[key] || '').trim()
   }
 
   const activeWorkers = useMemo(() => employees.filter((e) => e.active && e.role === 'member'), [employees])
@@ -257,6 +303,7 @@ export default function Admin() {
         {(
           [
             ['overview', 'Overview'],
+            ['weekly', 'Weekly plans'],
             ['employees', 'People & codes'],
             ['operations', 'Today ops'],
             ['bot', 'Bot & times'],
@@ -310,7 +357,9 @@ export default function Admin() {
 
           <section className="panel">
             <h2>Assign work</h2>
-            <p className="muted">Adds a task to the employee’s day alongside tasks they submit on Telegram.</p>
+            <p className="muted">
+              Week assignments go live on their weekly plan immediately. Today-only stays on that date only.
+            </p>
             <form className="employee-form" onSubmit={assignWork}>
               <select required value={assign.user_id} onChange={(e) => setAssign({ ...assign, user_id: e.target.value })}>
                 <option value="">Select employee</option>
@@ -321,9 +370,13 @@ export default function Admin() {
                   </option>
                 ))}
               </select>
+              <select value={assign.scope} onChange={(e) => setAssign({ ...assign, scope: e.target.value as 'week' | 'today' })}>
+                <option value="week">This week (live)</option>
+                <option value="today">Today only</option>
+              </select>
               <input
                 required
-                placeholder="Task to assign"
+                placeholder="Work title"
                 value={assign.title}
                 onChange={(e) => setAssign({ ...assign, title: e.target.value })}
                 maxLength={200}
@@ -422,6 +475,199 @@ export default function Admin() {
             </p>
           </section>
         </>
+      )}
+
+      {tab === 'weekly' && (
+        <section className="panel">
+          <div className="row between wrap gap">
+            <h2>Weekly plans</h2>
+            <label className="inline">
+              Week starting
+              <input type="date" value={weekStart} onChange={(e) => setWeekStart(e.target.value)} />
+            </label>
+          </div>
+          <p className="muted">
+            Employees submit checkpoints on Telegram. Approve or reject with a reason. Mid-week adds and removals appear
+            here too.
+          </p>
+          {weeklyPlans.length === 0 ? (
+            <p className="muted">No weekly plans submitted for this week.</p>
+          ) : (
+            weeklyPlans.map((plan) => (
+              <div key={plan.id} className="panel" style={{ marginTop: '1rem', boxShadow: 'none' }}>
+                <div className="row between wrap gap">
+                  <div>
+                    <strong>
+                      {plan.name} · <code>{plan.employee_id}</code>
+                    </strong>
+                    <p className="muted" style={{ margin: '0.25rem 0 0' }}>
+                      Status: <b>{plan.status}</b>
+                      {plan.submitted_at ? ` · submitted ${plan.submitted_at}` : ''}
+                    </p>
+                    {plan.rejection_reason && <p className="error">Rejected: {plan.rejection_reason}</p>}
+                  </div>
+                  {plan.status === 'pending' && (
+                    <div className="row gap wrap">
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() =>
+                          run(async () => {
+                            await api.approveWeeklyPlan(plan.id)
+                            await loadWeekly()
+                            return { message: `Approved ${plan.employee_id}` }
+                          })
+                        }
+                      >
+                        Approve week
+                      </button>
+                      <input
+                        placeholder="Reject reason"
+                        value={rejectReasons[`plan-${plan.id}`] || ''}
+                        onChange={(e) => setRejectReasons({ ...rejectReasons, [`plan-${plan.id}`]: e.target.value })}
+                      />
+                      <button
+                        type="button"
+                        className="secondary"
+                        disabled={busy}
+                        onClick={() => {
+                          const reason = reasonFor(`plan-${plan.id}`)
+                          if (reason.length < 3) {
+                            setError('Rejection reason required (min 3 chars)')
+                            return
+                          }
+                          run(async () => {
+                            await api.rejectWeeklyPlan(plan.id, reason)
+                            await loadWeekly()
+                            return { message: `Rejected ${plan.employee_id}` }
+                          })
+                        }}
+                      >
+                        Reject week
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div className="table-wrap" style={{ marginTop: '0.75rem' }}>
+                  <table className="team-table">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Checkpoint</th>
+                        <th>Src</th>
+                        <th>Status</th>
+                        <th>Notes</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {plan.goals.map((g, idx) => (
+                        <tr key={g.id}>
+                          <td>{idx + 1}</td>
+                          <td>{g.title}</td>
+                          <td>{g.source}</td>
+                          <td>{g.status}</td>
+                          <td>
+                            {g.remove_request_note || g.review_note || '—'}
+                          </td>
+                          <td>
+                            <div className="row gap wrap">
+                              {g.status === 'pending' && plan.status === 'approved' && (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="secondary small"
+                                    disabled={busy}
+                                    onClick={() =>
+                                      run(async () => {
+                                        await api.approveWeeklyGoal(g.id)
+                                        await loadWeekly()
+                                        return { message: 'Item approved' }
+                                      })
+                                    }
+                                  >
+                                    Approve
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="secondary small"
+                                    disabled={busy}
+                                    onClick={() => {
+                                      const reason = window.prompt('Reject reason') || ''
+                                      if (reason.trim().length < 3) return
+                                      run(async () => {
+                                        await api.rejectWeeklyGoal(g.id, reason.trim())
+                                        await loadWeekly()
+                                        return { message: 'Item rejected' }
+                                      })
+                                    }}
+                                  >
+                                    Reject
+                                  </button>
+                                </>
+                              )}
+                              {g.status === 'remove_requested' && (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="secondary small"
+                                    disabled={busy}
+                                    onClick={() =>
+                                      run(async () => {
+                                        await api.approveWeeklyGoalRemoval(g.id)
+                                        await loadWeekly()
+                                        return { message: 'Removal approved' }
+                                      })
+                                    }
+                                  >
+                                    Approve removal
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="secondary small"
+                                    disabled={busy}
+                                    onClick={() => {
+                                      const reason = window.prompt('Keep it — reason') || ''
+                                      if (reason.trim().length < 3) return
+                                      run(async () => {
+                                        await api.denyWeeklyGoalRemoval(g.id, reason.trim())
+                                        await loadWeekly()
+                                        return { message: 'Kept on week' }
+                                      })
+                                    }}
+                                  >
+                                    Keep it
+                                  </button>
+                                </>
+                              )}
+                              {(g.status === 'approved' || g.status === 'remove_requested' || g.status === 'pending') && (
+                                <button
+                                  type="button"
+                                  className="secondary small"
+                                  disabled={busy}
+                                  onClick={() => {
+                                    if (!window.confirm(`Remove “${g.title}” from the week?`)) return
+                                    run(async () => {
+                                      await api.removeWeeklyGoal(g.id)
+                                      await loadWeekly()
+                                      return { message: 'Removed' }
+                                    })
+                                  }}
+                                >
+                                  Remove
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))
+          )}
+        </section>
       )}
 
       {tab === 'employees' && (
@@ -789,16 +1035,27 @@ export default function Admin() {
                 Evening to
                 <input type="time" value={evening.to} onChange={(e) => setEvening({ ...evening, to: e.target.value })} />
               </label>
+              <label className="inline">
+                <input
+                  type="checkbox"
+                  checked={weeklyEnabled}
+                  onChange={(e) => setWeeklyEnabled(e.target.checked)}
+                />{' '}
+                Weekly plans enabled
+              </label>
               <button
                 disabled={busy}
                 onClick={() =>
                   run(async () => {
-                    await api.updateSettings({ reminder_times: { morning, evening } })
-                    return { message: 'Time windows saved' }
+                    await api.updateSettings({
+                      reminder_times: { morning, evening },
+                      weekly_plans_enabled: weeklyEnabled,
+                    })
+                    return { message: 'Bot settings saved' }
                   })
                 }
               >
-                Save windows
+                Save settings
               </button>
             </div>
           </section>

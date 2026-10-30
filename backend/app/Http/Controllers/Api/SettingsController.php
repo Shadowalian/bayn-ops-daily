@@ -32,6 +32,7 @@ class SettingsController extends Controller
             'working_days' => ['sometimes', 'array'],
             'working_days.*' => ['integer', 'between:1,7'],
             'timezone' => ['sometimes', 'string'],
+            'weekly_plans_enabled' => ['sometimes', 'boolean'],
             'reminder_times' => ['sometimes', 'array'],
             'reminder_times.morning' => ['sometimes'],
             'reminder_times.morning.from' => ['sometimes', 'date_format:H:i'],

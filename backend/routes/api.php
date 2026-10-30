@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\AdminBotController;
 use App\Http\Controllers\Api\AdminCodeSeriesController;
 use App\Http\Controllers\Api\AdminDashboardController;
 use App\Http\Controllers\Api\AdminEmployeeController;
+use App\Http\Controllers\Api\AdminWeeklyPlanController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\DayController;
 use App\Http\Controllers\Api\ExportController;
@@ -49,6 +50,15 @@ Route::prefix('v1')->group(function () {
             Route::patch('/admin/employees/{user}', [AdminEmployeeController::class, 'update']);
             Route::delete('/admin/employees/{user}', [AdminEmployeeController::class, 'destroy']);
             Route::post('/admin/assign-task', [AdminAssignController::class, 'store']);
+
+            Route::get('/admin/weekly-plans', [AdminWeeklyPlanController::class, 'index']);
+            Route::post('/admin/weekly-plans/{weekly_plan}/approve', [AdminWeeklyPlanController::class, 'approve']);
+            Route::post('/admin/weekly-plans/{weekly_plan}/reject', [AdminWeeklyPlanController::class, 'reject']);
+            Route::post('/admin/weekly-goals/{weekly_goal}/approve', [AdminWeeklyPlanController::class, 'approveGoal']);
+            Route::post('/admin/weekly-goals/{weekly_goal}/reject', [AdminWeeklyPlanController::class, 'rejectGoal']);
+            Route::post('/admin/weekly-goals/{weekly_goal}/approve-removal', [AdminWeeklyPlanController::class, 'approveRemoval']);
+            Route::post('/admin/weekly-goals/{weekly_goal}/deny-removal', [AdminWeeklyPlanController::class, 'denyRemoval']);
+            Route::post('/admin/weekly-goals/{weekly_goal}/remove', [AdminWeeklyPlanController::class, 'remove']);
 
             Route::get('/admin/code-series', [AdminCodeSeriesController::class, 'index']);
             Route::post('/admin/code-series', [AdminCodeSeriesController::class, 'store']);

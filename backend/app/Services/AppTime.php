@@ -23,6 +23,19 @@ class AppTime
         return self::now()->toDateString();
     }
 
+    /** Monday of the week containing $date (app timezone). */
+    public static function weekStart(?Carbon $date = null): string
+    {
+        $date = ($date ?? self::now())->copy()->timezone(self::timezone());
+
+        return $date->startOfWeek(Carbon::MONDAY)->toDateString();
+    }
+
+    public static function weeklyPlansEnabled(): bool
+    {
+        return (bool) Setting::getValue('weekly_plans_enabled', true);
+    }
+
     public static function isWorkingDay(?Carbon $date = null): bool
     {
         $date ??= self::now();

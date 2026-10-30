@@ -32,6 +32,30 @@ export type CodeSeries = {
 
 export type TimeWindow = { from: string; to: string }
 
+export type WeeklyGoalItem = {
+  id: number
+  title: string
+  status: 'pending' | 'approved' | 'rejected' | 'remove_requested' | 'removed'
+  source: 'self' | 'admin'
+  position?: number
+  review_note?: string | null
+  remove_request_note?: string | null
+  week_marks?: Record<string, string> | null
+}
+
+export type WeeklyPlan = {
+  id: number
+  user_id: number
+  employee_id?: string
+  name?: string
+  week_start: string
+  status: 'pending' | 'approved' | 'rejected'
+  submitted_at?: string | null
+  reviewed_at?: string | null
+  rejection_reason?: string | null
+  goals: WeeklyGoalItem[]
+}
+
 export type Task = {
   id: number
   title: string
@@ -318,11 +342,44 @@ export const api = {
   ) => request<CodeSeries>(`/api/v1/admin/code-series/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   deleteCodeSeries: (id: number) =>
     request<{ ok: boolean; deleted: string }>(`/api/v1/admin/code-series/${id}`, { method: 'DELETE' }),
-  assignTask: (payload: { user_id: number; title: string; date?: string }) =>
-    request<{ message: string; task: { id: number; title: string; employee_id: string; name: string } }>(
+  assignTask: (payload: { user_id: number; title: string; date?: string; scope?: 'week' | 'today' }) =>
+    request<{ message: string; task?: { id: number; title: string; employee_id?: string; name?: string } }>(
       '/api/v1/admin/assign-task',
       { method: 'POST', body: JSON.stringify(payload) }
     ),
+  listWeeklyPlans: (week_start?: string) => {
+    const q = week_start ? `?week_start=${encodeURIComponent(week_start)}` : ''
+    return request<{ week_start: string; plans: WeeklyPlan[] }>(`/api/v1/admin/weekly-plans${q}`)
+  },
+  approveWeeklyPlan: (id: number) =>
+    request<WeeklyPlan>(`/api/v1/admin/weekly-plans/${id}/approve`, { method: 'POST', body: '{}' }),
+  rejectWeeklyPlan: (id: number, reason: string) =>
+    request<WeeklyPlan>(`/api/v1/admin/weekly-plans/${id}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }),
+  approveWeeklyGoal: (id: number) =>
+    request<{ goal: WeeklyGoalItem }>(`/api/v1/admin/weekly-goals/${id}/approve`, { method: 'POST', body: '{}' }),
+  rejectWeeklyGoal: (id: number, reason: string) =>
+    request<{ goal: WeeklyGoalItem }>(`/api/v1/admin/weekly-goals/${id}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }),
+  approveWeeklyGoalRemoval: (id: number) =>
+    request<{ goal: WeeklyGoalItem }>(`/api/v1/admin/weekly-goals/${id}/approve-removal`, {
+      method: 'POST',
+      body: '{}',
+    }),
+  denyWeeklyGoalRemoval: (id: number, reason: string) =>
+    request<{ goal: WeeklyGoalItem }>(`/api/v1/admin/weekly-goals/${id}/deny-removal`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }),
+  removeWeeklyGoal: (id: number, note?: string) =>
+    request<{ goal: WeeklyGoalItem }>(`/api/v1/admin/weekly-goals/${id}/remove`, {
+      method: 'POST',
+      body: JSON.stringify({ note: note || null }),
+    }),
   botStatus: () =>
     request<{
       date: string
@@ -349,10 +406,12 @@ export const api = {
     }),
   updateSettings: (payload: {
     reminder_times?: { morning?: TimeWindow; evening?: TimeWindow }
+    weekly_plans_enabled?: boolean
   }) => request('/api/v1/settings', { method: 'PUT', body: JSON.stringify(payload) }),
   getSettings: () =>
     request<{
       reminder_times: { morning: TimeWindow; evening: TimeWindow }
+      weekly_plans_enabled?: boolean
       bot_token_set: boolean
     }>('/api/v1/settings'),
   exportCsv: (table: 'tasks' | 'attendance' | 'reasons', from: string, to: string) => {

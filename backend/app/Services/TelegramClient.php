@@ -63,6 +63,22 @@ class TelegramClient
         return $this->api('sendMessage', $payload);
     }
 
+    public function editMessageText(string|int $chatId, int $messageId, string $text, ?array $replyMarkup = null): ?array
+    {
+        $payload = [
+            'chat_id' => $chatId,
+            'message_id' => $messageId,
+            'text' => $text,
+            'parse_mode' => 'HTML',
+        ];
+
+        if ($replyMarkup) {
+            $payload['reply_markup'] = json_encode($replyMarkup);
+        }
+
+        return $this->api('editMessageText', $payload);
+    }
+
     public function answerCallback(string $callbackId, ?string $text = null): void
     {
         $this->api('answerCallbackQuery', array_filter([

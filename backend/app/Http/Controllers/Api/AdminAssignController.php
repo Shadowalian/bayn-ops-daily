@@ -9,17 +9,20 @@ use App\Models\User;
 use App\Services\AppTime;
 use App\Services\DayService;
 use App\Services\TelegramClient;
+use App\Services\WeeklyPlanService;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class AdminAssignController extends Controller
 {
-    public function store(Request $request, DayService $days, TelegramClient $telegram)
+    public function store(Request $request, DayService $days, TelegramClient $telegram, WeeklyPlanService $weekly)
     {
         $data = $request->validate([
             'user_id' => ['required', 'integer', 'exists:users,id'],
             'title' => ['required', 'string', 'max:200'],
             'date' => ['sometimes', 'date'],
+            'scope' => ['sometimes', Rule::in(['week', 'today'])],
         ]);
 
         $employee = User::query()->findOrFail($data['user_id']);
@@ -27,6 +30,37 @@ class AdminAssignController extends Controller
             throw ValidationException::withMessages([
                 'user_id' => 'Cannot assign work to an inactive employee.',
             ]);
+        }
+
+        $scope = $data['scope'] ?? (AppTime::weeklyPlansEnabled() ? 'week' : 'today');
+
+        if ($scope === 'week' && AppTime::weeklyPlansEnabled()) {
+            $result = $weekly->assignToWeek($employee, $data['title'], $request->user());
+            $goal = $result['goal'];
+            $task = $result['task'];
+
+            if ($employee->telegram_chat_id) {
+                $telegram->sendMessage(
+                    $employee->telegram_chat_id,
+                    "📌 Admin added to your <b>week</b>:\n<b>".e($goal->title)."</b>\n\n"
+                    .$weekly->renderTable($result['plan']->fresh(['goals', 'user']))
+                );
+            }
+
+            return response()->json([
+                'scope' => 'week',
+                'goal' => [
+                    'id' => $goal->id,
+                    'title' => $goal->title,
+                    'status' => $goal->status,
+                ],
+                'task' => $task ? [
+                    'id' => $task->id,
+                    'title' => $task->title,
+                    'source' => $task->source,
+                ] : null,
+                'message' => "Added to {$employee->name}'s week ({$employee->employee_id})",
+            ], 201);
         }
 
         $date = $data['date'] ?? AppTime::today();
@@ -66,12 +100,13 @@ class AdminAssignController extends Controller
             $telegram->sendMessage(
                 $employee->telegram_chat_id,
                 "📌 Admin assigned you a task for <b>{$date}</b>:\n"
-                ."<b>{$task->title}</b>\n\n"
+                .'<b>'.e($task->title)."</b>\n\n"
                 .'It is added to your day alongside your own tasks.'
             );
         }
 
         return response()->json([
+            'scope' => 'today',
             'task' => [
                 'id' => $task->id,
                 'title' => $task->title,

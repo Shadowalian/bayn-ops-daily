@@ -38,6 +38,7 @@ class Setting extends Model
                 'morning' => ['from' => '08:30', 'to' => '09:30'],
                 'evening' => ['from' => '17:00', 'to' => '18:00'],
             ],
+            'weekly_plans_enabled' => true,
         ];
     }
 

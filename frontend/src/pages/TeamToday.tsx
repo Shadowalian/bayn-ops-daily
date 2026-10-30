@@ -4,8 +4,15 @@ import { useAuth } from '../AuthContext'
 
 type TeamResponse = Awaited<ReturnType<typeof api.teamToday>>
 
+function shiftDate(iso: string, days: number) {
+  const d = new Date(`${iso}T12:00:00`)
+  d.setDate(d.getDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
 export default function TeamToday() {
   const { user } = useAuth()
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [data, setData] = useState<TeamResponse | null>(null)
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [error, setError] = useState('')
@@ -14,13 +21,13 @@ export default function TeamToday() {
 
   const load = useCallback(async () => {
     try {
-      const res = await api.teamToday()
+      const res = await api.teamToday(date)
       setData(res)
       setError('')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load team')
     }
-  }, [])
+  }, [date])
 
   useEffect(() => {
     load()
@@ -32,6 +39,7 @@ export default function TeamToday() {
 
   const selected = data.members.find((m) => m.user.id === selectedId)
   const attention = data.needs_attention
+  const isToday = data.date === new Date().toISOString().slice(0, 10)
 
   async function unlock() {
     if (!selected?.day?.id || !unlockNote.trim()) return
@@ -51,12 +59,28 @@ export default function TeamToday() {
     <div className="page">
       <header className="page-head">
         <div>
-          <p className="eyebrow">Team · {data.date}</p>
-          <h1>Today</h1>
+          <p className="eyebrow">Team · {data.timezone}</p>
+          <h1>{isToday ? 'Today' : data.date}</h1>
         </div>
-        <button className="secondary small" onClick={load}>
-          Refresh
-        </button>
+        <div className="row gap wrap">
+          <button type="button" className="secondary small" onClick={() => setDate((d) => shiftDate(d, -1))}>
+            ← Prev day
+          </button>
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          <button type="button" className="secondary small" onClick={() => setDate((d) => shiftDate(d, 1))}>
+            Next day →
+          </button>
+          <button
+            type="button"
+            className="secondary small"
+            onClick={() => setDate(new Date().toISOString().slice(0, 10))}
+          >
+            Jump to today
+          </button>
+          <button className="secondary small" onClick={load}>
+            Refresh
+          </button>
+        </div>
       </header>
 
       {error && <p className="error">{error}</p>}
@@ -81,45 +105,46 @@ export default function TeamToday() {
         )}
         {attention.open_blockers.length > 0 && (
           <p>
-            <strong>Roadblocks:</strong>{' '}
+            <strong>Open blockers:</strong>{' '}
             {attention.open_blockers.map((b) => `${b.user.name}: ${b.blocker.title}`).join(' · ')}
           </p>
         )}
+        {attention.not_linked.length === 0 &&
+          attention.missing_plans.length === 0 &&
+          attention.not_closed.length === 0 &&
+          attention.open_blockers.length === 0 && <p className="muted">All clear for this day.</p>}
       </section>
 
       <section className="panel">
+        <h2>People</h2>
         <div className="table-wrap">
           <table className="team-table">
             <thead>
               <tr>
-                <th>ID</th>
-                <th>Member</th>
+                <th>Code</th>
+                <th>Name</th>
+                <th>State</th>
                 <th>Done</th>
-                <th>Telegram</th>
-                <th>Day</th>
+                <th>Rate</th>
               </tr>
             </thead>
             <tbody>
-              {data.members.map((row) => (
+              {data.members.map((m) => (
                 <tr
-                  key={row.user.id}
-                  className={selectedId === row.user.id ? 'selected' : ''}
-                  onClick={() => setSelectedId(row.user.id)}
+                  key={m.user.id}
+                  className={selectedId === m.user.id ? 'selected' : undefined}
+                  onClick={() => setSelectedId(m.user.id)}
+                  style={{ cursor: 'pointer' }}
                 >
-                  <td><code>{row.user.employee_id}</code></td>
                   <td>
-                    <strong>{row.user.name}</strong>
+                    <code>{m.user.employee_id}</code>
                   </td>
+                  <td>{m.user.name}</td>
+                  <td>{m.day?.state || 'not_started'}</td>
                   <td>
-                    {row.overall_done}/{row.overall_planned}
-                    {row.overall_completion != null ? ` (${row.overall_completion}%)` : ''}
+                    {m.overall_done}/{m.overall_planned}
                   </td>
-                  <td>{row.user.telegram_chat_id ? 'Linked' : '—'}</td>
-                  <td>
-                    <span className={`pill state-${row.day?.state || 'not_started'}`}>
-                      {(row.day?.state || 'not_started').replace('_', ' ')}
-                    </span>
-                  </td>
+                  <td>{m.overall_completion == null ? '—' : `${m.overall_completion}%`}</td>
                 </tr>
               ))}
             </tbody>
@@ -129,33 +154,30 @@ export default function TeamToday() {
 
       {selected && (
         <section className="panel">
-          <h2>{selected.user.name}'s plan</h2>
-          {(selected.tasks?.length ?? 0) === 0 && <p className="muted">No tasks yet.</p>}
-          <ul className="task-list">
-            {(selected.tasks ?? []).map((t) => (
-              <li key={t.id} className="task-card">
-                <div className="row between">
-                  <strong>
-                    {t.position}) {t.title}
-                  </strong>
-                  <span>{t.result}</span>
-                </div>
-                {t.reason_note && <p className="muted">Roadblock: {t.reason_note}</p>}
-              </li>
-            ))}
-          </ul>
-
-          {user?.role === 'manager' && selected.day && selected.day.state !== 'closed' && (
-            <div style={{ marginTop: '1rem' }}>
-              <h3>Unlock plan edit</h3>
-              <p className="muted">Member asked to change their locked morning plan.</p>
+          <h2>
+            {selected.user.name} · <code>{selected.user.employee_id}</code>
+          </h2>
+          {selected.tasks && selected.tasks.length > 0 ? (
+            <ul className="task-list">
+              {selected.tasks.map((t) => (
+                <li key={t.id}>
+                  <strong>{t.title}</strong> · {t.result}
+                  {t.reason_note ? ` — ${t.reason_note}` : ''}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted">No tasks for this day.</p>
+          )}
+          {selected.day && user?.role === 'manager' && (
+            <div className="row gap wrap" style={{ marginTop: '0.75rem' }}>
               <input
-                placeholder="Note (required)"
+                placeholder="Unlock note"
                 value={unlockNote}
                 onChange={(e) => setUnlockNote(e.target.value)}
               />
-              <button disabled={busy || !unlockNote.trim()} onClick={unlock} style={{ marginTop: '0.5rem' }}>
-                Allow edit + re-prompt on Telegram
+              <button type="button" disabled={busy || !unlockNote.trim()} onClick={unlock}>
+                Unlock plan edit
               </button>
             </div>
           )}

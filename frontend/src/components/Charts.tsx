@@ -7,39 +7,51 @@ export function BarChart({ data, height = 180 }: { data: BarPoint[]; height?: nu
   const pad = { t: 16, r: 12, b: 36, l: 36 }
   const innerW = width - pad.l - pad.r
   const innerH = height - pad.t - pad.b
-  const max = Math.max(100, ...data.map((d) => d.value ?? 0), 1)
+  const hasValues = data.some((d) => d.value != null && d.value > 0)
+  const max = 100
   const gap = 8
-  const barW = data.length ? (innerW - gap * (data.length - 1)) / data.length : innerW
+  const barW = data.length ? Math.max(8, (innerW - gap * Math.max(data.length - 1, 0)) / data.length) : innerW
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="chart-svg" role="img" aria-label="Completion trend">
-      {[0, 25, 50, 75, 100].map((tick) => {
-        const y = pad.t + innerH - (tick / max) * innerH
-        return (
-          <g key={tick}>
-            <line x1={pad.l} x2={width - pad.r} y1={y} y2={y} className="chart-grid" />
-            <text x={pad.l - 6} y={y + 3} className="chart-axis" textAnchor="end">
-              {tick}%
-            </text>
-          </g>
-        )
-      })}
-      {data.map((d, i) => {
-        const v = d.value ?? 0
-        const h = (v / max) * innerH
-        const x = pad.l + i * (barW + gap)
-        const y = pad.t + innerH - h
-        return (
-          <g key={d.label}>
-            <rect x={x} y={y} width={barW} height={Math.max(h, 1)} rx={3} className="chart-bar" />
-            <text x={x + barW / 2} y={height - 12} className="chart-axis" textAnchor="middle">
-              {d.label.slice(5) || d.label}
-            </text>
-            <title>{`${d.label}: ${d.value == null ? '—' : `${d.value}%`}${d.hint ? ` (${d.hint})` : ''}`}</title>
-          </g>
-        )
-      })}
-    </svg>
+    <div className="chart-frame">
+      {!hasValues && <p className="chart-empty">No completion data in this range yet — graphs fill once people lock and close days.</p>}
+      <svg viewBox={`0 0 ${width} ${height}`} className="chart-svg" role="img" aria-label="Completion trend">
+        {[0, 25, 50, 75, 100].map((tick) => {
+          const y = pad.t + innerH - (tick / max) * innerH
+          return (
+            <g key={tick}>
+              <line x1={pad.l} x2={width - pad.r} y1={y} y2={y} className="chart-grid" />
+              <text x={pad.l - 6} y={y + 3} className="chart-axis" textAnchor="end">
+                {tick}%
+              </text>
+            </g>
+          )
+        })}
+        {data.map((d, i) => {
+          const v = d.value ?? 0
+          const h = Math.max((v / max) * innerH, d.value == null ? 0 : 2)
+          const x = pad.l + i * (barW + gap)
+          const y = pad.t + innerH - h
+          const short = d.label.length >= 10 ? d.label.slice(5) : d.label
+          return (
+            <g key={d.label}>
+              <rect
+                x={x}
+                y={y}
+                width={barW}
+                height={Math.max(h, d.value == null ? 0 : 2)}
+                rx={3}
+                className={d.value == null ? 'chart-bar chart-bar-empty' : 'chart-bar'}
+              />
+              <text x={x + barW / 2} y={height - 12} className="chart-axis" textAnchor="middle">
+                {short}
+              </text>
+              <title>{`${d.label}: ${d.value == null ? '—' : `${d.value}%`}${d.hint ? ` (${d.hint})` : ''}`}</title>
+            </g>
+          )
+        })}
+      </svg>
+    </div>
   )
 }
 
@@ -57,6 +69,10 @@ export function DonutChart({
   const stroke = 18
   const c = 2 * Math.PI * r
   let offset = 0
+
+  if (slices.length === 0) {
+    return <p className="chart-empty">No slip reasons recorded yet.</p>
+  }
 
   return (
     <div className="donut-wrap">

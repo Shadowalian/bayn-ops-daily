@@ -24,23 +24,27 @@ class AdminDashboardController extends Controller
         $to = $request->query('to', $today);
 
         $allActive = User::query()->where('active', true)->orderBy('employee_id')->get();
-        $members = $allActive->where('role', 'member')->values();
+        // Workforce = employees + any admin who actually works via Telegram (common in small teams).
+        $workforce = $allActive
+            ->filter(fn (User $u) => $u->role === 'member' || filled($u->telegram_chat_id))
+            ->values();
         $inactiveCount = User::query()->where('active', false)->count();
 
         $teamToday = $this->days->teamToday($today, false);
         $teamById = collect($teamToday)->keyBy(fn ($r) => $r['user']['id']);
-        $memberRows = collect($teamToday)->filter(fn ($r) => ($r['user']['role'] ?? 'member') === 'member')->values();
+        $workforceIds = $workforce->pluck('id');
+        $memberRows = collect($teamToday)->filter(fn ($r) => $workforceIds->contains($r['user']['id']))->values();
 
         $plansSubmitted = $memberRows->filter(fn ($r) => ! empty($r['day']['plan_submitted_at']))->count();
         $daysClosedToday = $memberRows->filter(fn ($r) => ($r['day']['state'] ?? '') === 'closed')->count();
         $blockers = $memberRows->sum(fn ($r) => count($r['blockers'] ?? []));
-        $linked = $members->filter(fn (User $u) => (bool) $u->telegram_chat_id)->count();
+        $linked = $workforce->filter(fn (User $u) => (bool) $u->telegram_chat_id)->count();
 
         $todayDone = $memberRows->sum('overall_done');
         $todayPlanned = $memberRows->sum('overall_planned');
         $todayRate = $todayPlanned > 0 ? round(($todayDone / $todayPlanned) * 100) : null;
 
-        $memberIds = $members->pluck('id');
+        $memberIds = $workforceIds;
 
         $rangeTasks = Task::query()
             ->select(['tasks.id', 'tasks.user_id', 'tasks.day_id', 'tasks.result', 'tasks.reason_code', 'tasks.carry_count', 'tasks.blocked', 'tasks.title', 'tasks.blocker_note', 'days.date as day_date'])
@@ -80,7 +84,7 @@ class AdminDashboardController extends Controller
 
         $workingDaysInRange = $this->countWorkingDays($from, $to);
 
-        $employeePerformance = $members->map(function (User $user) use ($from, $to, $teamById, $tasksByUser, $dayStats, $workingDaysInRange) {
+        $employeePerformance = $workforce->map(function (User $user) use ($from, $to, $teamById, $tasksByUser, $dayStats, $workingDaysInRange) {
             $todayRow = $teamById->get($user->id);
             $tasks = $tasksByUser->get($user->id, collect());
             $done = $tasks->where('result', 'done')->count();
@@ -158,9 +162,9 @@ class AdminDashboardController extends Controller
             'today' => $today,
             'range' => ['from' => $from, 'to' => $to],
             'kpis' => [
-                'active_members' => $members->count(),
+                'active_members' => $workforce->count(),
                 'telegram_linked' => $linked,
-                'telegram_link_rate' => $members->count() > 0 ? round(($linked / $members->count()) * 100) : 0,
+                'telegram_link_rate' => $workforce->count() > 0 ? round(($linked / $workforce->count()) * 100) : 0,
                 'plans_submitted_today' => $plansSubmitted,
                 'days_closed_today' => $daysClosedToday,
                 'open_blockers_today' => $blockers,
@@ -183,7 +187,7 @@ class AdminDashboardController extends Controller
                     ->filter(fn ($r) => ! in_array($r['day']['state'] ?? '', ['closed'], true) && ! empty($r['day']['plan_submitted_at']))
                     ->map(fn ($r) => $r['user'])
                     ->values(),
-                'not_linked' => $members->filter(fn (User $u) => ! $u->telegram_chat_id)->map(fn (User $u) => [
+                'not_linked' => $workforce->filter(fn (User $u) => ! $u->telegram_chat_id)->map(fn (User $u) => [
                     'id' => $u->id,
                     'employee_id' => $u->employee_id,
                     'name' => $u->name,
@@ -194,7 +198,7 @@ class AdminDashboardController extends Controller
             'directory_count' => [
                 'total' => $allActive->count(),
                 'managers' => $allActive->where('role', 'manager')->count(),
-                'members' => $members->count(),
+                'members' => $allActive->where('role', 'member')->count(),
                 'inactive' => $inactiveCount,
             ],
         ]);

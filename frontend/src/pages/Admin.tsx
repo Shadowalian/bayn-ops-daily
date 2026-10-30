@@ -22,6 +22,12 @@ function mondayOf(d = new Date()) {
   return x.toISOString().slice(0, 10)
 }
 
+function shiftDate(iso: string, days: number) {
+  const d = new Date(`${iso}T12:00:00`)
+  d.setDate(d.getDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
 function pct(n: number | null | undefined) {
   return n == null ? '—' : `${n}%`
 }
@@ -69,6 +75,18 @@ export default function Admin() {
   const [weeklyEnabled, setWeeklyEnabled] = useState(true)
   const [rejectReasons, setRejectReasons] = useState<Record<string, string>>({})
   const [weekAddTitles, setWeekAddTitles] = useState<Record<number, string>>({})
+  const [editingGoalId, setEditingGoalId] = useState<number | null>(null)
+  const [editingGoalTitle, setEditingGoalTitle] = useState('')
+  const [opsDate, setOpsDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [opsRows, setOpsRows] = useState<
+    Array<{
+      user: User
+      day: { id: number; state: string } | null
+      overall_done: number
+      overall_planned: number
+      blockers: Array<{ id: number; title: string }>
+    }>
+  >([])
 
   function resetSeriesForm() {
     setEditingSeriesId(null)
@@ -102,9 +120,12 @@ export default function Admin() {
   }, [])
 
   const loadWeekly = useCallback(async () => {
-    const res = await api.listWeeklyPlans(weekStart)
+    const monday = mondayOf(new Date(`${weekStart}T12:00:00`))
+    const res = await api.listWeeklyPlans(monday)
     setWeeklyPlans(res.plans)
-    setWeekStart(res.week_start)
+    if (res.week_start && res.week_start !== weekStart) {
+      setWeekStart(res.week_start)
+    }
   }, [weekStart])
 
   const load = useCallback(async () => {
@@ -135,6 +156,24 @@ export default function Admin() {
     if (user?.role !== 'manager' || tab !== 'weekly') return
     loadWeekly().catch((err) => setError(err instanceof Error ? err.message : 'Failed to load weekly plans'))
   }, [user, tab, weekStart, loadWeekly])
+
+  useEffect(() => {
+    if (user?.role !== 'manager' || tab !== 'operations') return
+    api
+      .teamToday(opsDate)
+      .then((res) =>
+        setOpsRows(
+          res.members.map((m) => ({
+            user: m.user,
+            day: m.day ? { id: m.day.id, state: m.day.state } : null,
+            overall_done: m.overall_done,
+            overall_planned: m.overall_planned,
+            blockers: m.blockers.map((b) => ({ id: b.id, title: b.title })),
+          }))
+        )
+      )
+      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load day ops'))
+  }, [user, tab, opsDate])
 
   useEffect(() => {
     if (!series.length || form.code_series_id || editingId) return
@@ -258,7 +297,7 @@ export default function Admin() {
     return (rejectReasons[key] || '').trim()
   }
 
-  const activeWorkers = useMemo(() => employees.filter((e) => e.active && e.role === 'member'), [employees])
+  const activeWorkers = useMemo(() => employees.filter((e) => e.active), [employees])
   const sortedEmployees = useMemo(
     () => [...(dash?.employees || [])].sort((a, b) => (b.period.completion ?? -1) - (a.period.completion ?? -1)),
     [dash]
@@ -283,6 +322,16 @@ export default function Admin() {
           </p>
         </div>
         <div className="row gap wrap">
+          <button
+            type="button"
+            className="secondary small"
+            onClick={() => {
+              setFrom((f) => shiftDate(f, -1))
+              setTo((t) => shiftDate(t, -1))
+            }}
+          >
+            ← Prev day
+          </button>
           <label className="inline">
             From
             <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
@@ -291,6 +340,16 @@ export default function Admin() {
             To
             <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
           </label>
+          <button
+            type="button"
+            className="secondary small"
+            onClick={() => {
+              setFrom((f) => shiftDate(f, 1))
+              setTo((t) => shiftDate(t, 1))
+            }}
+          >
+            Next day →
+          </button>
           <button className="secondary small" disabled={busy} onClick={() => load()}>
             Refresh
           </button>
@@ -329,7 +388,12 @@ export default function Admin() {
 
           <section className="panel">
             <h2>Performance graphs</h2>
-            <p className="muted">How the team is executing across the selected period.</p>
+            <p className="muted">
+              How the team is executing across the selected period
+              {dash.kpis.active_members === 0
+                ? ' — add employees (EMP series) or link people on Telegram so work shows here.'
+                : '.'}
+            </p>
             <div className="charts-grid">
               <div>
                 <h3 className="chart-title">Daily completion %</h3>
@@ -347,11 +411,7 @@ export default function Admin() {
               </div>
               <div>
                 <h3 className="chart-title">Why work slips</h3>
-                {reasonSlices.length === 0 ? (
-                  <p className="muted">No not-done reasons in this period.</p>
-                ) : (
-                  <DonutChart slices={reasonSlices} />
-                )}
+                <DonutChart slices={reasonSlices} />
               </div>
             </div>
           </section>
@@ -482,10 +542,22 @@ export default function Admin() {
         <section className="panel">
           <div className="row between wrap gap">
             <h2>Weekly plans</h2>
-            <label className="inline">
-              Week starting
-              <input type="date" value={weekStart} onChange={(e) => setWeekStart(e.target.value)} />
-            </label>
+            <div className="row gap wrap">
+              <button type="button" className="secondary small" onClick={() => setWeekStart((w) => shiftDate(mondayOf(new Date(`${w}T12:00:00`)), -7))}>
+                ← Prev week
+              </button>
+              <label className="inline">
+                Week starting
+                <input
+                  type="date"
+                  value={weekStart}
+                  onChange={(e) => setWeekStart(mondayOf(new Date(`${e.target.value}T12:00:00`)))}
+                />
+              </label>
+              <button type="button" className="secondary small" onClick={() => setWeekStart((w) => shiftDate(mondayOf(new Date(`${w}T12:00:00`)), 7))}>
+                Next week →
+              </button>
+            </div>
           </div>
           <p className="muted">
             Approve, revoke, edit titles, add, or remove checkpoints anytime — even after a week is already approved.
@@ -573,7 +645,43 @@ export default function Admin() {
                       {plan.goals.map((g, idx) => (
                         <tr key={g.id}>
                           <td>{idx + 1}</td>
-                          <td>{g.title}</td>
+                          <td>
+                            {editingGoalId === g.id ? (
+                              <form
+                                className="row gap wrap"
+                                onSubmit={(e) => {
+                                  e.preventDefault()
+                                  const title = editingGoalTitle.trim()
+                                  if (!title) return
+                                  run(async () => {
+                                    await api.updateWeeklyGoal(g.id, title)
+                                    setEditingGoalId(null)
+                                    await loadWeekly()
+                                    return { message: 'Checkpoint updated' }
+                                  })
+                                }}
+                              >
+                                <input
+                                  value={editingGoalTitle}
+                                  onChange={(e) => setEditingGoalTitle(e.target.value)}
+                                  maxLength={200}
+                                  autoFocus
+                                />
+                                <button type="submit" className="small" disabled={busy}>
+                                  Save
+                                </button>
+                                <button
+                                  type="button"
+                                  className="secondary small"
+                                  onClick={() => setEditingGoalId(null)}
+                                >
+                                  Cancel
+                                </button>
+                              </form>
+                            ) : (
+                              g.title
+                            )}
+                          </td>
                           <td>{g.source}</td>
                           <td>{g.status}</td>
                           <td>{g.remove_request_note || g.review_note || '—'}</td>
@@ -654,15 +762,8 @@ export default function Admin() {
                                     className="secondary small"
                                     disabled={busy}
                                     onClick={() => {
-                                      const next = window.prompt('Edit checkpoint title', g.title)
-                                      if (next == null) return
-                                      const title = next.trim()
-                                      if (!title || title === g.title) return
-                                      run(async () => {
-                                        await api.updateWeeklyGoal(g.id, title)
-                                        await loadWeekly()
-                                        return { message: 'Checkpoint updated' }
-                                      })
+                                      setEditingGoalId(g.id)
+                                      setEditingGoalTitle(g.title)
                                     }}
                                   >
                                     Edit
@@ -672,16 +773,6 @@ export default function Admin() {
                                     className="secondary small"
                                     disabled={busy}
                                     onClick={() => {
-                                      const reason =
-                                        window.prompt('Remove / decline reason (optional for remove)', '') || ''
-                                      if (reason.trim().length >= 3) {
-                                        run(async () => {
-                                          await api.rejectWeeklyGoal(g.id, reason.trim())
-                                          await loadWeekly()
-                                          return { message: 'Item declined' }
-                                        })
-                                        return
-                                      }
                                       if (!window.confirm(`Remove “${g.title}” from the week?`)) return
                                       run(async () => {
                                         await api.removeWeeklyGoal(g.id)
@@ -1000,9 +1091,30 @@ export default function Admin() {
         </>
       )}
 
-      {tab === 'operations' && dash && (
+      {tab === 'operations' && (
         <section className="panel">
-          <h2>Today — unlock & status</h2>
+          <div className="row between wrap gap">
+            <h2>Day ops — unlock & status</h2>
+            <div className="row gap wrap">
+              <button type="button" className="secondary small" onClick={() => setOpsDate((d) => shiftDate(d, -1))}>
+                ← Prev day
+              </button>
+              <input type="date" value={opsDate} onChange={(e) => setOpsDate(e.target.value)} />
+              <button type="button" className="secondary small" onClick={() => setOpsDate((d) => shiftDate(d, 1))}>
+                Next day →
+              </button>
+              <button
+                type="button"
+                className="secondary small"
+                onClick={() => setOpsDate(new Date().toISOString().slice(0, 10))}
+              >
+                Today
+              </button>
+            </div>
+          </div>
+          <p className="muted">
+            Showing workforce for <code>{opsDate}</code>. Use Next/Prev to move days. Unlock needs a note.
+          </p>
           <div className="table-wrap">
             <table className="team-table">
               <thead>
@@ -1016,34 +1128,46 @@ export default function Admin() {
                 </tr>
               </thead>
               <tbody>
-                {dash.employees.map((row) => (
+                {opsRows.map((row) => (
                   <tr key={row.user.id}>
                     <td>
                       <code>{row.user.employee_id}</code>
                     </td>
                     <td>{row.user.name}</td>
                     <td>
-                      <span className={`pill state-${row.today.state}`}>{row.today.state.replace('_', ' ')}</span>
+                      <span className={`pill state-${row.day?.state || 'not_started'}`}>
+                        {(row.day?.state || 'not_started').replace('_', ' ')}
+                      </span>
                     </td>
                     <td>
-                      {row.today.done}/{row.today.planned}
+                      {row.overall_done}/{row.overall_planned}
                     </td>
-                    <td>{row.today.blockers}</td>
+                    <td>{row.blockers.length}</td>
                     <td>
-                      {row.today.day_id && row.today.state !== 'closed' ? (
+                      {row.day?.id && row.day.state !== 'closed' ? (
                         <div className="row gap wrap">
                           <input
                             placeholder="Required note"
-                            value={unlockNotes[row.today.day_id] || ''}
-                            onChange={(e) => setUnlockNotes({ ...unlockNotes, [row.today.day_id!]: e.target.value })}
+                            value={unlockNotes[row.day.id] || ''}
+                            onChange={(e) => setUnlockNotes({ ...unlockNotes, [row.day!.id]: e.target.value })}
                           />
                           <button
                             type="button"
                             className="small"
-                            disabled={busy || !(unlockNotes[row.today.day_id] || '').trim()}
+                            disabled={busy || !(unlockNotes[row.day.id] || '').trim()}
                             onClick={() =>
                               run(async () => {
-                                await api.unlockDay(row.today.day_id!, unlockNotes[row.today.day_id!].trim())
+                                await api.unlockDay(row.day!.id, unlockNotes[row.day!.id].trim())
+                                const res = await api.teamToday(opsDate)
+                                setOpsRows(
+                                  res.members.map((m) => ({
+                                    user: m.user,
+                                    day: m.day ? { id: m.day.id, state: m.day.state } : null,
+                                    overall_done: m.overall_done,
+                                    overall_planned: m.overall_planned,
+                                    blockers: m.blockers.map((b) => ({ id: b.id, title: b.title })),
+                                  }))
+                                )
                                 return { message: `Unlocked ${row.user.employee_id}` }
                               })
                             }

@@ -239,8 +239,9 @@ export const api = {
     request<Task>(`/api/v1/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   carryOver: (id: number) =>
     request<Task>(`/api/v1/tasks/${id}/carry-over`, { method: 'POST' }),
-  teamToday: () =>
-    request<{
+  teamToday: (date?: string) => {
+    const q = date ? `?date=${encodeURIComponent(date)}` : ''
+    return request<{
       date: string
       timezone: string
       members: Array<{
@@ -274,7 +275,8 @@ export const api = {
         open_blockers: Array<{ user: User; blocker: { id: number; title: string } }>
         not_linked: User[]
       }
-    }>('/api/v1/team/today'),
+    }>(`/api/v1/team/today${q}`)
+  },
   dashboard: (from?: string, to?: string) => {
     const q = new URLSearchParams()
     if (from) q.set('from', from)

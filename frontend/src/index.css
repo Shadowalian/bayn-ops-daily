@@ -496,6 +496,20 @@ code {
   fill: var(--accent);
 }
 
+.chart-bar-empty {
+  fill: #e5dfd2;
+}
+
+.chart-frame {
+  position: relative;
+}
+
+.chart-empty {
+  margin: 0 0 0.5rem;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
 .gauge-row {
   display: grid;
   grid-template-columns: 1fr 1fr;

@@ -61,16 +61,40 @@ class AdminWeeklyPlanController extends Controller
             'reason' => ['required', 'string', 'min:3', 'max:1000'],
         ]);
 
+        $wasApproved = $weekly_plan->isApproved();
         $plan = $plans->rejectPlan($weekly_plan, $request->user(), $data['reason']);
+        $headline = $wasApproved
+            ? 'Your weekly plan was <b>revoked</b> by admin.'
+            : 'Your weekly plan was <b>not approved</b>.';
         $this->notifyEmployee(
             $telegram,
             $plan,
-            "Your weekly plan was <b>not approved</b>.\n"
+            $headline."\n"
             .'Reason: '.e($plan->rejection_reason)."\n\n"
             .'Send a revised list with /week.'
         );
 
         return response()->json($plans->payload($plan));
+    }
+
+    public function updateGoal(Request $request, WeeklyGoal $weekly_goal, WeeklyPlanService $plans, TelegramClient $telegram)
+    {
+        $data = $request->validate([
+            'title' => ['required', 'string', 'min:1', 'max:200'],
+        ]);
+
+        $goal = $plans->updateGoalTitle($weekly_goal, $request->user(), $data['title']);
+        $owner = User::query()->find($goal->owner_id);
+        if ($owner?->telegram_chat_id) {
+            $plan = $goal->plan?->load(['goals', 'user']) ?? WeeklyPlan::query()->with(['goals', 'user'])->find($goal->weekly_plan_id);
+            $telegram->sendMessage(
+                $owner->telegram_chat_id,
+                '✏️ Admin updated a checkpoint to: <b>'.e($goal->title).'</b>'
+                .($plan ? "\n\n".$plans->renderTable($plan) : '')
+            );
+        }
+
+        return response()->json(['goal' => $this->goalPayload($goal)]);
     }
 
     public function approveGoal(Request $request, WeeklyGoal $weekly_goal, WeeklyPlanService $plans, TelegramClient $telegram)
@@ -90,13 +114,14 @@ class AdminWeeklyPlanController extends Controller
     public function rejectGoal(Request $request, WeeklyGoal $weekly_goal, WeeklyPlanService $plans, TelegramClient $telegram)
     {
         $data = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:500']]);
+        $wasPending = $weekly_goal->status === WeeklyGoal::STATUS_PENDING;
         $goal = $plans->rejectGoal($weekly_goal, $request->user(), $data['reason']);
         $owner = User::query()->find($goal->owner_id);
         if ($owner?->telegram_chat_id) {
-            $telegram->sendMessage(
-                $owner->telegram_chat_id,
-                'Not added: <b>'.e($goal->title)."</b>\nReason: ".e($goal->review_note)
-            );
+            $msg = $wasPending
+                ? 'Not added: <b>'.e($goal->title)."</b>\nReason: ".e($goal->review_note)
+                : 'Removed from your week: <b>'.e($goal->title)."</b>\nReason: ".e($goal->review_note);
+            $telegram->sendMessage($owner->telegram_chat_id, $msg);
         }
 
         return response()->json(['goal' => $this->goalPayload($goal)]);

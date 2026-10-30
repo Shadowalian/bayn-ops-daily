@@ -56,6 +56,7 @@ Route::prefix('v1')->group(function () {
             Route::post('/admin/weekly-plans/{weekly_plan}/reject', [AdminWeeklyPlanController::class, 'reject']);
             Route::post('/admin/weekly-goals/{weekly_goal}/approve', [AdminWeeklyPlanController::class, 'approveGoal']);
             Route::post('/admin/weekly-goals/{weekly_goal}/reject', [AdminWeeklyPlanController::class, 'rejectGoal']);
+            Route::patch('/admin/weekly-goals/{weekly_goal}', [AdminWeeklyPlanController::class, 'updateGoal']);
             Route::post('/admin/weekly-goals/{weekly_goal}/approve-removal', [AdminWeeklyPlanController::class, 'approveRemoval']);
             Route::post('/admin/weekly-goals/{weekly_goal}/deny-removal', [AdminWeeklyPlanController::class, 'denyRemoval']);
             Route::post('/admin/weekly-goals/{weekly_goal}/remove', [AdminWeeklyPlanController::class, 'remove']);

@@ -183,10 +183,11 @@ class WeeklyPlanService
     {
         return DB::transaction(function () use ($plan, $manager) {
             $plan = WeeklyPlan::query()->lockForUpdate()->findOrFail($plan->id);
+            $old = $plan->status;
 
+            // Pending adds + items from a revoked/rejected week become live again.
             $plan->goals()
-                ->where('status', WeeklyGoal::STATUS_PENDING)
-                ->where('source', 'self')
+                ->whereIn('status', [WeeklyGoal::STATUS_PENDING, WeeklyGoal::STATUS_REJECTED])
                 ->update(['status' => WeeklyGoal::STATUS_APPROVED, 'review_note' => null]);
 
             $plan->update([
@@ -196,7 +197,7 @@ class WeeklyPlanService
                 'rejection_reason' => null,
             ]);
 
-            AuditLog::record($manager->id, 'weekly_plan', $plan->id, 'approved', WeeklyPlan::STATUS_PENDING, WeeklyPlan::STATUS_APPROVED, 'Week approved');
+            AuditLog::record($manager->id, 'weekly_plan', $plan->id, 'approved', $old, WeeklyPlan::STATUS_APPROVED, 'Week approved');
 
             $fresh = $plan->fresh(['goals', 'user']);
             $this->materializeAdminGoalsForToday($fresh->user, $fresh);
@@ -214,22 +215,20 @@ class WeeklyPlanService
 
         return DB::transaction(function () use ($plan, $manager, $reason) {
             $plan = WeeklyPlan::query()->lockForUpdate()->findOrFail($plan->id);
+            $old = $plan->status;
 
-            $hasApprovedSelf = $plan->goals()
-                ->where('source', 'self')
-                ->whereIn('status', [WeeklyGoal::STATUS_APPROVED, WeeklyGoal::STATUS_REMOVE_REQUESTED])
-                ->exists();
+            $liveGoals = $plan->goals()
+                ->whereIn('status', WeeklyGoal::LIVE_STATUSES)
+                ->get();
 
-            if ($hasApprovedSelf || $plan->isApproved()) {
-                throw ValidationException::withMessages([
-                    'plan' => 'Week is already live; decide item by item.',
+            foreach ($liveGoals as $goal) {
+                $goal->update([
+                    'status' => WeeklyGoal::STATUS_REJECTED,
+                    'review_note' => mb_substr($reason, 0, 500),
+                    'remove_request_note' => null,
                 ]);
+                $this->dropPlannedTasksForGoal($goal);
             }
-
-            $plan->goals()
-                ->where('status', WeeklyGoal::STATUS_PENDING)
-                ->where('source', 'self')
-                ->update(['status' => WeeklyGoal::STATUS_REJECTED, 'review_note' => mb_substr($reason, 0, 500)]);
 
             $plan->update([
                 'status' => WeeklyPlan::STATUS_REJECTED,
@@ -238,9 +237,37 @@ class WeeklyPlanService
                 'rejection_reason' => mb_substr($reason, 0, 1000),
             ]);
 
-            AuditLog::record($manager->id, 'weekly_plan', $plan->id, 'rejected', WeeklyPlan::STATUS_PENDING, WeeklyPlan::STATUS_REJECTED, $reason);
+            AuditLog::record($manager->id, 'weekly_plan', $plan->id, 'rejected', $old, WeeklyPlan::STATUS_REJECTED, $reason);
 
             return $plan->fresh(['goals', 'user']);
+        });
+    }
+
+    public function updateGoalTitle(WeeklyGoal $goal, User $manager, string $title): WeeklyGoal
+    {
+        $title = mb_substr(trim($title), 0, 200);
+        if ($title === '') {
+            throw ValidationException::withMessages(['title' => 'Title required.']);
+        }
+
+        return DB::transaction(function () use ($goal, $manager, $title) {
+            $goal = WeeklyGoal::query()->lockForUpdate()->findOrFail($goal->id);
+            if (in_array($goal->status, [WeeklyGoal::STATUS_REMOVED, WeeklyGoal::STATUS_REJECTED], true)) {
+                throw ValidationException::withMessages(['goal' => 'Cannot edit a removed or rejected item. Re-add it instead.']);
+            }
+
+            $old = $goal->title;
+            $goal->update(['title' => $title]);
+
+            // Keep today's open tasks in sync
+            Task::query()
+                ->where('weekly_goal_id', $goal->id)
+                ->whereIn('result', ['planned', 'partial'])
+                ->update(['title' => $title]);
+
+            AuditLog::record($manager->id, 'weekly_goal', $goal->id, 'title', $old, $title, 'Admin edited checkpoint');
+
+            return $goal->fresh();
         });
     }
 
@@ -271,15 +298,18 @@ class WeeklyPlanService
 
         return DB::transaction(function () use ($goal, $manager, $reason) {
             $goal = WeeklyGoal::query()->lockForUpdate()->findOrFail($goal->id);
-            if ($goal->status !== WeeklyGoal::STATUS_PENDING) {
-                throw ValidationException::withMessages(['goal' => 'Only pending items can be rejected.']);
+            if (! in_array($goal->status, WeeklyGoal::LIVE_STATUSES, true)) {
+                throw ValidationException::withMessages(['goal' => 'That item is already closed.']);
             }
 
+            $old = $goal->status;
             $goal->update([
                 'status' => WeeklyGoal::STATUS_REJECTED,
                 'review_note' => mb_substr($reason, 0, 500),
+                'remove_request_note' => null,
             ]);
-            AuditLog::record($manager->id, 'weekly_goal', $goal->id, 'rejected', WeeklyGoal::STATUS_PENDING, WeeklyGoal::STATUS_REJECTED, $reason);
+            $this->dropPlannedTasksForGoal($goal);
+            AuditLog::record($manager->id, 'weekly_goal', $goal->id, 'rejected', $old, WeeklyGoal::STATUS_REJECTED, $reason);
 
             return $goal->fresh();
         });

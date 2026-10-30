@@ -380,6 +380,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ note: note || null }),
     }),
+  updateWeeklyGoal: (id: number, title: string) =>
+    request<{ goal: WeeklyGoalItem }>(`/api/v1/admin/weekly-goals/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ title }),
+    }),
   botStatus: () =>
     request<{
       date: string

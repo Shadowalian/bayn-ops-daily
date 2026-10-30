@@ -68,6 +68,7 @@ export default function Admin() {
   const [weeklyPlans, setWeeklyPlans] = useState<WeeklyPlan[]>([])
   const [weeklyEnabled, setWeeklyEnabled] = useState(true)
   const [rejectReasons, setRejectReasons] = useState<Record<string, string>>({})
+  const [weekAddTitles, setWeekAddTitles] = useState<Record<number, string>>({})
 
   function resetSeriesForm() {
     setEditingSeriesId(null)
@@ -487,8 +488,7 @@ export default function Admin() {
             </label>
           </div>
           <p className="muted">
-            Employees submit checkpoints on Telegram. Approve or reject with a reason. Mid-week adds and removals appear
-            here too.
+            Approve, revoke, edit titles, add, or remove checkpoints anytime — even after a week is already approved.
           </p>
           {weeklyPlans.length === 0 ? (
             <p className="muted">No weekly plans submitted for this week.</p>
@@ -506,8 +506,8 @@ export default function Admin() {
                     </p>
                     {plan.rejection_reason && <p className="error">Rejected: {plan.rejection_reason}</p>}
                   </div>
-                  {plan.status === 'pending' && (
-                    <div className="row gap wrap">
+                  <div className="row gap wrap">
+                    {(plan.status === 'pending' || plan.status === 'rejected') && (
                       <button
                         type="button"
                         disabled={busy}
@@ -519,34 +519,43 @@ export default function Admin() {
                           })
                         }
                       >
-                        Approve week
+                        {plan.status === 'rejected' ? 'Re-approve week' : 'Approve week'}
                       </button>
-                      <input
-                        placeholder="Reject reason"
-                        value={rejectReasons[`plan-${plan.id}`] || ''}
-                        onChange={(e) => setRejectReasons({ ...rejectReasons, [`plan-${plan.id}`]: e.target.value })}
-                      />
-                      <button
-                        type="button"
-                        className="secondary"
-                        disabled={busy}
-                        onClick={() => {
-                          const reason = reasonFor(`plan-${plan.id}`)
-                          if (reason.length < 3) {
-                            setError('Rejection reason required (min 3 chars)')
-                            return
-                          }
-                          run(async () => {
-                            await api.rejectWeeklyPlan(plan.id, reason)
-                            await loadWeekly()
-                            return { message: `Rejected ${plan.employee_id}` }
-                          })
-                        }}
-                      >
-                        Reject week
-                      </button>
-                    </div>
-                  )}
+                    )}
+                    {(plan.status === 'pending' || plan.status === 'approved') && (
+                      <>
+                        <input
+                          placeholder={plan.status === 'approved' ? 'Revoke reason' : 'Reject reason'}
+                          value={rejectReasons[`plan-${plan.id}`] || ''}
+                          onChange={(e) => setRejectReasons({ ...rejectReasons, [`plan-${plan.id}`]: e.target.value })}
+                        />
+                        <button
+                          type="button"
+                          className="secondary"
+                          disabled={busy}
+                          onClick={() => {
+                            const reason = reasonFor(`plan-${plan.id}`)
+                            if (reason.length < 3) {
+                              setError('Reason required (min 3 chars)')
+                              return
+                            }
+                            run(async () => {
+                              await api.rejectWeeklyPlan(plan.id, reason)
+                              await loadWeekly()
+                              return {
+                                message:
+                                  plan.status === 'approved'
+                                    ? `Revoked ${plan.employee_id}`
+                                    : `Rejected ${plan.employee_id}`,
+                              }
+                            })
+                          }}
+                        >
+                          {plan.status === 'approved' ? 'Revoke week' : 'Reject week'}
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
                 <div className="table-wrap" style={{ marginTop: '0.75rem' }}>
                   <table className="team-table">
@@ -567,12 +576,10 @@ export default function Admin() {
                           <td>{g.title}</td>
                           <td>{g.source}</td>
                           <td>{g.status}</td>
-                          <td>
-                            {g.remove_request_note || g.review_note || '—'}
-                          </td>
+                          <td>{g.remove_request_note || g.review_note || '—'}</td>
                           <td>
                             <div className="row gap wrap">
-                              {g.status === 'pending' && plan.status === 'approved' && (
+                              {g.status === 'pending' && (
                                 <>
                                   <button
                                     type="button"
@@ -641,21 +648,51 @@ export default function Admin() {
                                 </>
                               )}
                               {(g.status === 'approved' || g.status === 'remove_requested' || g.status === 'pending') && (
-                                <button
-                                  type="button"
-                                  className="secondary small"
-                                  disabled={busy}
-                                  onClick={() => {
-                                    if (!window.confirm(`Remove “${g.title}” from the week?`)) return
-                                    run(async () => {
-                                      await api.removeWeeklyGoal(g.id)
-                                      await loadWeekly()
-                                      return { message: 'Removed' }
-                                    })
-                                  }}
-                                >
-                                  Remove
-                                </button>
+                                <>
+                                  <button
+                                    type="button"
+                                    className="secondary small"
+                                    disabled={busy}
+                                    onClick={() => {
+                                      const next = window.prompt('Edit checkpoint title', g.title)
+                                      if (next == null) return
+                                      const title = next.trim()
+                                      if (!title || title === g.title) return
+                                      run(async () => {
+                                        await api.updateWeeklyGoal(g.id, title)
+                                        await loadWeekly()
+                                        return { message: 'Checkpoint updated' }
+                                      })
+                                    }}
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="secondary small"
+                                    disabled={busy}
+                                    onClick={() => {
+                                      const reason =
+                                        window.prompt('Remove / decline reason (optional for remove)', '') || ''
+                                      if (reason.trim().length >= 3) {
+                                        run(async () => {
+                                          await api.rejectWeeklyGoal(g.id, reason.trim())
+                                          await loadWeekly()
+                                          return { message: 'Item declined' }
+                                        })
+                                        return
+                                      }
+                                      if (!window.confirm(`Remove “${g.title}” from the week?`)) return
+                                      run(async () => {
+                                        await api.removeWeeklyGoal(g.id)
+                                        await loadWeekly()
+                                        return { message: 'Removed' }
+                                      })
+                                    }}
+                                  >
+                                    Remove
+                                  </button>
+                                </>
                               )}
                             </div>
                           </td>
@@ -664,6 +701,31 @@ export default function Admin() {
                     </tbody>
                   </table>
                 </div>
+                <form
+                  className="employee-form"
+                  style={{ marginTop: '0.75rem' }}
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    const title = (weekAddTitles[plan.id] || '').trim()
+                    if (!title) return
+                    run(async () => {
+                      await api.assignTask({ user_id: plan.user_id, title, scope: 'week' })
+                      setWeekAddTitles({ ...weekAddTitles, [plan.id]: '' })
+                      await loadWeekly()
+                      return { message: `Added to ${plan.employee_id}` }
+                    })
+                  }}
+                >
+                  <input
+                    placeholder="Add work to this week…"
+                    value={weekAddTitles[plan.id] || ''}
+                    onChange={(e) => setWeekAddTitles({ ...weekAddTitles, [plan.id]: e.target.value })}
+                    maxLength={200}
+                  />
+                  <button type="submit" disabled={busy || !(weekAddTitles[plan.id] || '').trim()}>
+                    Add to week
+                  </button>
+                </form>
               </div>
             ))
           )}

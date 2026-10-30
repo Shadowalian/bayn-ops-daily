@@ -25,6 +25,38 @@ class WeeklyPlanService
         return AppTime::weeklyPlansEnabled();
     }
 
+    /** Wipe all weekly plans/goals and unlink related daily tasks. */
+    public function purgeAll(?User $actor = null): array
+    {
+        return DB::transaction(function () use ($actor) {
+            $goalIds = WeeklyGoal::query()->pluck('id');
+            $plans = WeeklyPlan::query()->count();
+            $goals = $goalIds->count();
+
+            if ($goalIds->isNotEmpty()) {
+                Task::query()
+                    ->whereIn('weekly_goal_id', $goalIds->all())
+                    ->where('result', 'planned')
+                    ->update([
+                        'result' => 'dropped',
+                        'reason_code' => 'other',
+                        'reason_note' => 'Weekly plan data cleared',
+                    ]);
+
+                Task::query()->whereIn('weekly_goal_id', $goalIds->all())->update(['weekly_goal_id' => null]);
+            }
+
+            WeeklyGoal::query()->delete();
+            WeeklyPlan::query()->delete();
+
+            if ($actor) {
+                AuditLog::record($actor->id, 'weekly_plan', 0, 'purged', (string) $plans, '0', "Cleared {$plans} plans / {$goals} goals");
+            }
+
+            return ['plans' => $plans, 'goals' => $goals];
+        });
+    }
+
     public function currentPlan(User $user, ?string $weekStart = null): ?WeeklyPlan
     {
         $weekStart ??= AppTime::weekStart();

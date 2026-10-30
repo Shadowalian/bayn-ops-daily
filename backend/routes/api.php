@@ -52,6 +52,7 @@ Route::prefix('v1')->group(function () {
             Route::post('/admin/assign-task', [AdminAssignController::class, 'store']);
 
             Route::get('/admin/weekly-plans', [AdminWeeklyPlanController::class, 'index']);
+            Route::post('/admin/weekly-plans/purge', [AdminWeeklyPlanController::class, 'purge']);
             Route::post('/admin/weekly-plans/{weekly_plan}/approve', [AdminWeeklyPlanController::class, 'approve']);
             Route::post('/admin/weekly-plans/{weekly_plan}/reject', [AdminWeeklyPlanController::class, 'reject']);
             Route::post('/admin/weekly-goals/{weekly_goal}/approve', [AdminWeeklyPlanController::class, 'approveGoal']);

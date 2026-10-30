@@ -14,6 +14,17 @@ use Illuminate\Http\Request;
 
 class AdminWeeklyPlanController extends Controller
 {
+    public function purge(Request $request, WeeklyPlanService $plans)
+    {
+        $result = $plans->purgeAll($request->user());
+
+        return response()->json([
+            'ok' => true,
+            'message' => "Cleared {$result['plans']} weekly plans and {$result['goals']} checkpoints.",
+            ...$result,
+        ]);
+    }
+
     public function index(Request $request, WeeklyPlanService $plans)
     {
         $weekStart = $request->query('week_start') ?: AppTime::weekStart();

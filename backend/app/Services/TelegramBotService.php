@@ -900,10 +900,14 @@ class TelegramBotService
         $this->clearState($chatId);
         $this->telegram->sendMessage(
             $chatId,
-            'Sent to admin. You will get a message when it is approved or returned.',
+            'Sent to admin. Open the <b>Weekly plans</b> tab in the admin web app to approve it. You will also get a Telegram message when it is approved or returned.',
             $this->linkedKeyboard()
         );
-        $this->pingManagers("Weekly plan from <b>{$user->name}</b> (<code>{$user->employee_id}</code>) is waiting in the admin console.");
+        $this->pingManagers(
+            "Weekly plan from <b>{$user->name}</b> (<code>{$user->employee_id}</code>) is waiting.\n"
+            .'Open <b>Weekly plans</b> on the admin site to approve or reject.',
+            $user->id
+        );
     }
 
     private function receiveWeekAdd(User $user, string $chatId, string $text): void
@@ -926,7 +930,10 @@ class TelegramBotService
         $this->clearState($chatId);
         $list = collect($titles)->map(fn ($t) => '• '.$t)->implode("\n");
         $this->telegram->sendMessage($chatId, "Sent for approval:\n{$list}", $this->linkedKeyboard());
-        $this->pingManagers("Mid-week add from <b>{$user->name}</b> (<code>{$user->employee_id}</code>) needs review.");
+        $this->pingManagers(
+            "Mid-week add from <b>{$user->name}</b> (<code>{$user->employee_id}</code>) needs review in <b>Weekly plans</b>.",
+            $user->id
+        );
     }
 
     private function receiveWeekRemove(User $user, string $chatId, string $text, array $state): void
@@ -971,7 +978,10 @@ class TelegramBotService
             'Removal request sent. Those rows stay on your table as <code>cut</code> until admin decides.',
             $this->linkedKeyboard()
         );
-        $this->pingManagers("Removal request from <b>{$user->name}</b> (<code>{$user->employee_id}</code>) needs review.");
+        $this->pingManagers(
+            "Removal request from <b>{$user->name}</b> (<code>{$user->employee_id}</code>) needs review in <b>Weekly plans</b>.",
+            $user->id
+        );
     }
 
     private function receiveTodayFocus(User $user, string $chatId, string $text, array $state): void
@@ -1201,15 +1211,28 @@ class TelegramBotService
         return ['inline_keyboard' => $rows];
     }
 
-    private function pingManagers(string $html): void
+    private function pingManagers(string $html, ?int $exceptUserId = null): void
     {
-        User::query()
+        $managers = User::query()
             ->where('role', 'manager')
             ->where('active', true)
             ->whereNotNull('telegram_chat_id')
-            ->each(function (User $mgr) use ($html) {
-                $this->telegram->sendMessage($mgr->telegram_chat_id, '🔔 '.$html);
-            });
+            ->when($exceptUserId, fn ($q) => $q->where('id', '!=', $exceptUserId))
+            ->get();
+
+        // If the only linked manager is the submitter, still notify them so the ping is visible.
+        if ($managers->isEmpty() && $exceptUserId) {
+            $managers = User::query()
+                ->where('role', 'manager')
+                ->where('active', true)
+                ->whereNotNull('telegram_chat_id')
+                ->where('id', $exceptUserId)
+                ->get();
+        }
+
+        foreach ($managers as $mgr) {
+            $this->telegram->sendMessage($mgr->telegram_chat_id, '🔔 '.$html);
+        }
     }
 
     /** @return list<string> */

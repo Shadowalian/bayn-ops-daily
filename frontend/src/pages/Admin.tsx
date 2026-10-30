@@ -303,7 +303,7 @@ export default function Admin() {
         {(
           [
             ['overview', 'Overview'],
-            ['weekly', 'Weekly plans'],
+            ['weekly', weeklyPlans.some((p) => p.status === 'pending') ? 'Weekly plans ●' : 'Weekly plans'],
             ['employees', 'People & codes'],
             ['operations', 'Today ops'],
             ['bot', 'Bot & times'],

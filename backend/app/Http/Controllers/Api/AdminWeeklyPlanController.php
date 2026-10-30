@@ -20,15 +20,24 @@ class AdminWeeklyPlanController extends Controller
 
         $rows = WeeklyPlan::query()
             ->whereDate('week_start', $weekStart)
-            ->whereHas('user', fn ($q) => $q->where('active', true)->where('role', 'member'))
+            ->whereHas('user', fn ($q) => $q->where('active', true))
             ->with(['user', 'goals'])
             ->orderByDesc('submitted_at')
             ->orderBy('id')
             ->get()
             ->map(fn (WeeklyPlan $p) => $plans->payload($p));
 
+        $pendingCount = collect($rows)->filter(function (array $p) {
+            if (($p['status'] ?? '') === 'pending') {
+                return true;
+            }
+
+            return collect($p['goals'] ?? [])->contains(fn ($g) => in_array($g['status'] ?? '', ['pending', 'remove_requested'], true));
+        })->count();
+
         return response()->json([
             'week_start' => $weekStart,
+            'pending_count' => $pendingCount,
             'plans' => $rows,
         ]);
     }

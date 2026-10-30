@@ -217,6 +217,20 @@ export const api = {
       body: JSON.stringify({ employee_id, password }),
     }),
   me: () => request<{ user: User }>('/api/v1/auth/me'),
+  updateProfile: (payload: { name?: string; job_title?: string | null }) =>
+    request<{ user: User; message: string }>('/api/v1/auth/me', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  changePassword: (payload: {
+    current_password: string
+    password: string
+    password_confirmation: string
+  }) =>
+    request<{ ok: boolean; message: string; user: User }>('/api/v1/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
   logout: () => request<{ ok: boolean }>('/api/v1/auth/logout', { method: 'POST' }),
   history: (userId: number) =>
     request<{ data: Array<{

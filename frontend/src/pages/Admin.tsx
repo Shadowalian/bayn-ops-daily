@@ -60,6 +60,7 @@ export default function Admin() {
     employee_id: '',
     name: '',
     job_title: '',
+    password: '',
   })
   const [editingId, setEditingId] = useState<number | null>(null)
   const [assign, setAssign] = useState({ user_id: '', title: '', scope: 'week' as 'week' | 'today' })
@@ -214,6 +215,7 @@ export default function Admin() {
       employee_id: first?.next_code || '',
       name: '',
       job_title: '',
+      password: '',
     })
   }
 
@@ -224,6 +226,7 @@ export default function Admin() {
       employee_id: emp.employee_id,
       name: emp.name,
       job_title: emp.job_title || '',
+      password: '',
     })
     setTab('employees')
   }
@@ -231,15 +234,17 @@ export default function Admin() {
   async function savePerson(e: FormEvent) {
     e.preventDefault()
     await run(async () => {
+      const password = form.password.trim()
       if (editingId) {
         await api.updateEmployee(editingId, {
           employee_id: form.employee_id.trim().toUpperCase(),
           name: form.name.trim(),
           job_title: form.job_title.trim() || null,
           code_series_id: form.code_series_id ? Number(form.code_series_id) : null,
+          ...(password ? { password } : {}),
         })
         resetPersonForm()
-        return { message: 'Employee updated' }
+        return { message: password ? 'Person updated (password set)' : 'Employee updated' }
       }
       if (!form.code_series_id) throw new Error('Pick a code series first')
       const created = await api.createEmployee({
@@ -247,10 +252,14 @@ export default function Admin() {
         employee_id: form.employee_id.trim().toUpperCase() || undefined,
         name: form.name.trim(),
         job_title: form.job_title.trim() || undefined,
-        password: crypto.randomUUID().replace(/-/g, '').slice(0, 16),
+        password: password || crypto.randomUUID().replace(/-/g, '').slice(0, 16),
       })
       resetPersonForm()
-      return { message: `Created ${created.employee_id} · ${created.name}` }
+      return {
+        message: password
+          ? `Created ${created.employee_id} · ${created.name} (password set)`
+          : `Created ${created.employee_id} · ${created.name}`,
+      }
     })
   }
 
@@ -988,6 +997,14 @@ export default function Admin() {
                 placeholder="Job title (Sales, Dev…)"
                 value={form.job_title}
                 onChange={(e) => setForm({ ...form, job_title: e.target.value })}
+              />
+              <input
+                type="password"
+                minLength={6}
+                placeholder={editingId ? 'New password (optional)' : 'Password (optional — random if blank)'}
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+                autoComplete="new-password"
               />
               <button type="submit" disabled={busy}>
                 {editingId ? 'Save person' : 'Create person'}

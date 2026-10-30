@@ -7,7 +7,6 @@ use App\Models\AuditLog;
 use App\Models\CodeSeries;
 use App\Models\User;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -87,7 +86,7 @@ class AdminEmployeeController extends Controller
             'email' => strtolower($employeeId).'@bayn.local',
             'role' => $series->access_role,
             'job_title' => isset($data['job_title']) ? trim($data['job_title']) : null,
-            'password' => Hash::make($password),
+            'password' => $password,
             'active' => $data['active'] ?? true,
         ]);
 
@@ -120,7 +119,7 @@ class AdminEmployeeController extends Controller
         }
 
         if (! empty($data['password'])) {
-            $user->password = Hash::make($data['password']);
+            $user->password = $data['password'];
             AuditLog::record($request->user()->id, 'user', $user->id, 'password', '***', '***', 'Password reset');
             unset($data['password']);
         } else {

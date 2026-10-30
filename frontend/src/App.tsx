@@ -1,5 +1,6 @@
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider, useAuth } from './AuthContext'
+import Account from './pages/Account'
 import Admin from './pages/Admin'
 import Login from './pages/Login'
 import TeamToday from './pages/TeamToday'
@@ -37,6 +38,7 @@ function Shell() {
         <div className="nav-links">
           <NavLink to="/admin">Admin</NavLink>
           <NavLink to="/team">Team</NavLink>
+          <NavLink to="/account">Account</NavLink>
         </div>
         <div className="nav-user">
           <span>
@@ -51,6 +53,7 @@ function Shell() {
         <Routes>
           <Route path="/admin" element={<Admin />} />
           <Route path="/team" element={<TeamToday />} />
+          <Route path="/account" element={<Account />} />
           <Route path="*" element={<Navigate to="/admin" replace />} />
         </Routes>
       </main>

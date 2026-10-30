@@ -35,10 +35,10 @@ class TelegramBotService
     public function registerBotUi(): void
     {
         $this->telegram->setMyCommands([
-            ['command' => 'start', 'description' => 'Start BAYN OPS / link employee code'],
-            ['command' => 'week', 'description' => 'Set or change this week’s plan'],
-            ['command' => 'tasks', 'description' => 'Today’s checkpoints / daily tasks'],
-            ['command' => 'help', 'description' => 'How to use the bot'],
+            ['command' => 'start', 'description' => 'Start / refresh buttons'],
+            ['command' => 'week', 'description' => 'Week plan (same as 🗓 Week plan button)'],
+            ['command' => 'tasks', 'description' => "Today's tasks (same as 📝 button)"],
+            ['command' => 'help', 'description' => 'Help (same as ❓ Help button)'],
         ]);
     }
 
@@ -171,13 +171,19 @@ class TelegramBotService
             return;
         }
 
-        if (str_starts_with($text, '/help') || $normalized === 'help') {
+        if (str_starts_with($text, '/help') || $normalized === 'help' || $normalized === '❓ help') {
             $this->sendHelp($chatId, $user);
 
             return;
         }
 
-        if (str_starts_with($text, '/tasks') || $normalized === '📝 today\'s tasks' || $normalized === "📝 today's tasks") {
+        if (
+            str_starts_with($text, '/tasks')
+            || $normalized === '📝 today\'s tasks'
+            || $normalized === "📝 today's tasks"
+            || $normalized === 'todays tasks'
+            || $normalized === "today's tasks"
+        ) {
             if (! $user) {
                 $this->askToPressStart($chatId);
 
@@ -194,13 +200,32 @@ class TelegramBotService
             return;
         }
 
-        if (str_starts_with($text, '/week') || $normalized === '🗓 week plan' || $normalized === '🗓️ week plan') {
+        $isWeekAdd = str_starts_with($normalized, '/week add')
+            || $normalized === '➕ add work'
+            || $normalized === 'add work';
+        $isWeekRemove = str_starts_with($normalized, '/week remove')
+            || $normalized === '➖ remove work'
+            || $normalized === 'remove work';
+        $isWeekPlan = str_starts_with($text, '/week')
+            || $normalized === '🗓 week plan'
+            || $normalized === '🗓️ week plan'
+            || $normalized === 'week plan'
+            || $isWeekAdd
+            || $isWeekRemove;
+
+        if ($isWeekPlan) {
             if (! $user) {
                 $this->askToPressStart($chatId);
 
                 return;
             }
-            $this->handleWeekCommand($user, $chatId, $text);
+            $weekText = $text;
+            if ($isWeekAdd) {
+                $weekText = '/week add';
+            } elseif ($isWeekRemove) {
+                $weekText = '/week remove';
+            }
+            $this->handleWeekCommand($user, $chatId, $weekText);
 
             return;
         }
@@ -257,8 +282,8 @@ class TelegramBotService
         }
 
         $hint = $this->weekly->enabled()
-            ? "Tap <b>🗓 Week plan</b> to set checkpoints, or <b>📝 Today's tasks</b> for today."
-            : "Tap <b>📝 Today's tasks</b> to submit your plan, or wait for the admin morning/evening prompt.";
+            ? 'Use the buttons below: <b>🗓 Week plan</b>, <b>➕ Add work</b>, <b>➖ Remove work</b>, or <b>📝 Today\'s tasks</b>.'
+            : 'Use the buttons below — tap <b>📝 Today\'s tasks</b> when you are ready.';
 
         $this->telegram->sendMessage(
             $chatId,
@@ -281,7 +306,7 @@ class TelegramBotService
             $this->telegram->sendMessage(
                 $chatId,
                 "Welcome back, <b>{$user->name}</b> ({$user->employee_id}).\n\n"
-                .'Tap <b>📝 Today\'s tasks</b> when you are ready to plan your day.',
+                .'Use the buttons below — no need to type /commands.',
                 $this->linkedKeyboard()
             );
             $this->promptMorning($user);
@@ -346,7 +371,7 @@ class TelegramBotService
                 $chatId,
                 "Hello <b>{$found->name}</b> 👋\n"
                 ."Welcome to <b>BAYN OPS</b>.\n\n"
-                .'First set this week\'s checkpoints with <b>🗓 Week plan</b>. Admin will approve them, then you pick what to push each day.',
+                .'Use the buttons below. Start with <b>🗓 Week plan</b> — admin will approve, then use <b>📝 Today\'s tasks</b> each morning.',
                 $this->linkedKeyboard()
             );
             $this->beginWeekPlanCapture($found);
@@ -414,10 +439,10 @@ class TelegramBotService
         }
 
         $extra = $this->weekly->enabled()
-            ? "• <b>/week</b> — submit weekly checkpoints for admin approval\n"
-              ."• Morning — pick today’s rows from your weekly table\n"
-              ."• <code>/week add</code> / <code>/week remove</code> — mid-week changes\n"
-            : "• Tap <b>📝 Today's tasks</b> to submit your morning plan\n";
+            ? "• <b>🗓 Week plan</b> — submit weekly checkpoints for admin approval\n"
+              ."• <b>📝 Today's tasks</b> — pick today’s work from your week\n"
+              ."• <b>➕ Add work</b> / <b>➖ Remove work</b> — mid-week changes\n"
+            : "• <b>📝 Today's tasks</b> — submit your morning plan\n";
 
         $this->telegram->sendMessage(
             $chatId,
@@ -425,7 +450,8 @@ class TelegramBotService
             ."• Your code: <code>{$user->employee_id}</code>\n"
             .$extra
             ."• Evening: mark ✅/❌ on today’s work\n"
-            .'• Only your admin can create codes and unlock edits',
+            ."• <b>❓ Help</b> — show this message\n"
+            .'• Use the buttons under the chat — no typing /commands needed',
             $this->linkedKeyboard()
         );
     }
@@ -441,14 +467,22 @@ class TelegramBotService
 
     private function linkedKeyboard(): array
     {
-        $row = [['text' => "📝 Today's tasks"]];
         if ($this->weekly->enabled()) {
-            $row[] = ['text' => '🗓 Week plan'];
+            return [
+                'keyboard' => [
+                    [['text' => '🗓 Week plan'], ['text' => "📝 Today's tasks"]],
+                    [['text' => '➕ Add work'], ['text' => '➖ Remove work']],
+                    [['text' => '❓ Help'], ['text' => '🚀 Start']],
+                ],
+                'resize_keyboard' => true,
+            ];
         }
-        $row[] = ['text' => '🚀 Start'];
 
         return [
-            'keyboard' => [$row],
+            'keyboard' => [
+                [['text' => "📝 Today's tasks"], ['text' => '❓ Help']],
+                [['text' => '🚀 Start']],
+            ],
             'resize_keyboard' => true,
         ];
     }
@@ -702,7 +736,7 @@ class TelegramBotService
         if ($goals->isEmpty()) {
             $this->telegram->sendMessage(
                 $user->telegram_chat_id,
-                "Good morning <b>{$user->name}</b>.\nYour week is approved but has no live checkpoints yet. Use /week add or wait for admin assign.",
+                "Good morning <b>{$user->name}</b>.\nYour week is approved but has no live checkpoints yet. Tap <b>➕ Add work</b> or wait for admin assign.",
                 $this->linkedKeyboard()
             );
 
@@ -799,14 +833,19 @@ class TelegramBotService
         if ($sub === 'add') {
             $plan = $this->weekly->currentPlan($user);
             if (! $plan?->isApproved()) {
-                $this->telegram->sendMessage($chatId, 'Your week must be approved before adding work. Use /week first.');
+                $this->telegram->sendMessage(
+                    $chatId,
+                    'Your week must be approved before adding work. Tap <b>🗓 Week plan</b> first.',
+                    $this->linkedKeyboard()
+                );
 
                 return;
             }
             $this->setState($chatId, ['phase' => 'awaiting_week_add']);
             $this->telegram->sendMessage(
                 $chatId,
-                "Send new checkpoints to add (for admin approval):\n<code>1) Extra item\n2) Another</code>"
+                "Send new checkpoints to add (for admin approval):\n<code>1) Extra item\n2) Another</code>",
+                $this->linkedKeyboard()
             );
 
             return;
@@ -844,8 +883,7 @@ class TelegramBotService
             $this->telegram->sendMessage(
                 $chatId,
                 "Your week is <b>approved</b>.\n\n".$this->weekly->renderTable($plan)."\n\n"
-                ."To add work for approval: <code>/week add</code>\n"
-                .'To ask to remove work: <code>/week remove</code>',
+                .'Tap <b>➕ Add work</b> or <b>➖ Remove work</b> for mid-week changes.',
                 $this->linkedKeyboard()
             );
 
@@ -989,7 +1027,7 @@ class TelegramBotService
         $plan = WeeklyPlan::query()->with('goals')->find($state['plan_id'] ?? 0) ?? $this->weekly->currentPlan($user);
         if (! $plan || ! $plan->isApproved()) {
             $this->clearState($chatId);
-            $this->telegram->sendMessage($chatId, 'Weekly plan is not available. Use /week.');
+            $this->telegram->sendMessage($chatId, 'Weekly plan is not available. Tap <b>🗓 Week plan</b>.', $this->linkedKeyboard());
 
             return;
         }

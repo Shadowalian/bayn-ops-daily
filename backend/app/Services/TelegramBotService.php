@@ -727,7 +727,7 @@ class TelegramBotService
         $body = "Good morning <b>{$user->name}</b>.\n\n"
             .$this->weekly->renderTable($plan)
             ."\n\nReply with the numbers you will push today: <code>1, 3</code> or <code>all</code>.\n"
-            .'Rows marked <code>adm</code> are already on your day.';
+            .'📌 Admin items are already on your day.';
 
         $sent = $this->telegram->sendMessage(
             $user->telegram_chat_id,
@@ -975,7 +975,7 @@ class TelegramBotService
         $this->clearState($chatId);
         $this->telegram->sendMessage(
             $chatId,
-            'Removal request sent. Those rows stay on your table as <code>cut</code> until admin decides.',
+            'Removal request sent. Those items stay listed as <i>Removal requested</i> until admin decides.',
             $this->linkedKeyboard()
         );
         $this->pingManagers(
